@@ -21,8 +21,14 @@ from shapely.geometry import mapping, shape
 BUCKET = "noaa-nws-aorc-v1-1-1km"
 MAX_DAYS = 180
 VARIABLE_META = {
-    "APCP_surface": {"label": "Precipitation", "units": "mm/hr"},
-    "TMP_2maboveground": {"label": "Temperature", "units": "K"},
+    "APCP_surface":        {"label": "Precipitation",              "units": "mm/hr"},
+    "TMP_2maboveground":   {"label": "Temperature",                "units": "K"},
+    "SPFH_2maboveground":  {"label": "Specific Humidity",          "units": "g/g"},
+    "DLWRF_surface":       {"label": "Downw. Longwave Radiation",  "units": "W/m²"},
+    "DSWRF_surface":       {"label": "Downw. Shortwave Radiation", "units": "W/m²"},
+    "PRES_surface":        {"label": "Surface Pressure",           "units": "Pa"},
+    "UGRD_10maboveground": {"label": "U-Wind (10 m)",              "units": "m/s"},
+    "VGRD_10maboveground": {"label": "V-Wind (10 m)",              "units": "m/s"},
 }
 
 # ---------------------------------------------------------------------------
@@ -92,7 +98,16 @@ class AOIRequest(BaseModel):
 # AORC query request
 # ---------------------------------------------------------------------------
 class QueryRequest(AOIRequest):
-    variable: Literal["APCP_surface", "TMP_2maboveground"]
+    variable: Literal[
+        "APCP_surface",
+        "TMP_2maboveground",
+        "SPFH_2maboveground",
+        "DLWRF_surface",
+        "DSWRF_surface",
+        "PRES_surface",
+        "UGRD_10maboveground",
+        "VGRD_10maboveground",
+    ]
     start_date: str
     end_date: str
 
@@ -271,5 +286,126 @@ async def landcover(req: LandCoverRequest):
         raise
     except Exception as e:
         raise HTTPException(500, f"Land cover analysis error: {e}")
+
+    return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# USGS NWIS streamflow gauge models
+# ---------------------------------------------------------------------------
+NWIS_IV_BASE = "https://waterservices.usgs.gov/nwis/iv/"
+NWIS_PARAM = "00060"  # discharge, ft³/s
+NWIS_MISSING = -999999
+
+
+class GaugeListRequest(BaseModel):
+    min_lon: float
+    min_lat: float
+    max_lon: float
+    max_lat: float
+    limit: int = 50
+
+
+class GaugeTimeseriesRequest(BaseModel):
+    site_no: str
+    start_date: str
+    end_date: str
+
+
+# ---------------------------------------------------------------------------
+# Routes — gauges
+# ---------------------------------------------------------------------------
+@app.post("/api/gauges")
+async def gauge_list(req: GaugeListRequest):
+    loop = asyncio.get_event_loop()
+
+    def _fetch():
+        bbox = f"{req.min_lon},{req.min_lat},{req.max_lon},{req.max_lat}"
+        params = {
+            "format": "json",
+            "parameterCd": NWIS_PARAM,
+            "bBox": bbox,
+            "siteStatus": "active",
+        }
+        resp = http_requests.get(NWIS_IV_BASE, params=params, timeout=30)
+        if resp.status_code != 200:
+            raise HTTPException(502, f"NWIS returned HTTP {resp.status_code}")
+        ts_list = resp.json().get("value", {}).get("timeSeries", [])
+        gauges = []
+        for ts in ts_list[: req.limit]:
+            si = ts["sourceInfo"]
+            site_no = si.get("siteCode", [{}])[0].get("value", "")
+            name = si.get("siteName", "")
+            geo = si.get("geoLocation", {}).get("geogLocation", {})
+            lat = geo.get("latitude")
+            lon = geo.get("longitude")
+            values_list = ts.get("values", [{}])[0].get("value", [])
+            latest = values_list[-1] if values_list else {}
+            raw = float(latest.get("value", NWIS_MISSING)) if latest else NWIS_MISSING
+            flow = None if raw == NWIS_MISSING else raw
+            obs_time = latest.get("dateTime") if latest else None
+            gauges.append({"site_no": site_no, "name": name, "lat": lat, "lon": lon,
+                            "flow_cfs": flow, "obs_time": obs_time})
+        return gauges
+
+    try:
+        result = await loop.run_in_executor(None, _fetch)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Gauge list error: {e}")
+
+    return JSONResponse(result)
+
+
+@app.post("/api/gauge_timeseries")
+async def gauge_timeseries(req: GaugeTimeseriesRequest):
+    try:
+        t0 = pd.Timestamp(req.start_date)
+        t1 = pd.Timestamp(req.end_date)
+    except Exception:
+        raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD.")
+    if (t1 - t0).days > MAX_DAYS:
+        raise HTTPException(400, f"Date range cannot exceed {MAX_DAYS} days.")
+
+    loop = asyncio.get_event_loop()
+
+    def _fetch():
+        params = {
+            "format": "json",
+            "sites": req.site_no,
+            "parameterCd": NWIS_PARAM,
+            "startDT": req.start_date,
+            "endDT": req.end_date,
+        }
+        resp = http_requests.get(NWIS_IV_BASE, params=params, timeout=60)
+        if resp.status_code != 200:
+            raise HTTPException(502, f"NWIS returned HTTP {resp.status_code}")
+        ts_list = resp.json().get("value", {}).get("timeSeries", [])
+        if not ts_list:
+            raise HTTPException(404, "No streamflow data found for this site and date range.")
+        ts = ts_list[0]
+        site_name = ts["sourceInfo"].get("siteName", req.site_no)
+        records = ts.get("values", [{}])[0].get("value", [])
+        times, values = [], []
+        for r in records:
+            raw = float(r["value"])
+            times.append(r["dateTime"])
+            values.append(None if raw == NWIS_MISSING else raw)
+        return {
+            "site_no": req.site_no,
+            "name": site_name,
+            "times": times,
+            "values": values,
+            "units": "ft³/s",
+            "n_times": len(times),
+        }
+
+    try:
+        result = await loop.run_in_executor(None, _fetch)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Gauge timeseries error: {e}")
 
     return JSONResponse(result)

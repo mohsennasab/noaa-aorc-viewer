@@ -300,6 +300,21 @@
     }
     .spinner.green { border-top-color: #22c55e; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Stats card */
+    .stats-card {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 12px;
+      padding: 8px 12px;
+      background: #0f1117;
+      border-top: 1px solid #2d3148;
+      flex-shrink: 0;
+    }
+    .stats-card.visible { display: grid; }
+    .stat-item { display: flex; flex-direction: column; }
+    .stat-label { font-size: 0.7rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-value { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; }
   </style>
 </head>
 <body>
@@ -377,6 +392,25 @@
             <span class="opacity-val" id="nlcd-opacity-val">70%</span>
           </div>
         </div>
+
+        <div style="height:8px"></div>
+
+        <!-- 3DEP Hillshade toggle -->
+        <div class="layer-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="hillshade-toggle" onchange="toggleHillshade()" />
+            <span class="slider"></span>
+          </label>
+          <span class="layer-label">3DEP Hillshade</span>
+        </div>
+        <div id="hillshade-controls" style="display:none">
+          <div class="opacity-row" style="margin-top:0">
+            <label>Opacity</label>
+            <input type="range" id="hillshade-opacity" min="10" max="100" value="60"
+                   oninput="updateHillshadeOpacity(this.value)" />
+            <span class="opacity-val" id="hillshade-opacity-val">60%</span>
+          </div>
+        </div>
       </div>
 
       <hr class="divider" />
@@ -423,6 +457,13 @@
         <select id="variable">
           <option value="APCP_surface">Precipitation (mm/hr)</option>
           <option value="TMP_2maboveground">Temperature (K)</option>
+          <option value="TMP_C">Temperature (°C)</option>
+          <option value="SPFH_2maboveground">Specific Humidity (g/g)</option>
+          <option value="DLWRF_surface">Downw. Longwave Radiation (W/m²)</option>
+          <option value="DSWRF_surface">Downw. Shortwave Radiation (W/m²)</option>
+          <option value="PRES_surface">Surface Pressure (Pa)</option>
+          <option value="UGRD_10maboveground">U-Wind 10 m (m/s)</option>
+          <option value="VGRD_10maboveground">V-Wind 10 m (m/s)</option>
         </select>
         <div style="height:8px"></div>
         <label for="start-date">Start date</label>
@@ -463,6 +504,21 @@
         <div class="status" id="lc-status"></div>
       </div>
 
+      <hr class="divider" />
+
+      <!-- 4. USGS Streamflow Gauges -->
+      <div>
+        <div class="section-title">4. Streamflow Gauges</div>
+        <p class="hint">Active USGS gauges load automatically when you confirm an AOI (&lt; 10°×10°).</p>
+        <div style="height:6px"></div>
+        <div class="watershed-card" id="gauge-card" style="border-left-color:#22d3ee;display:none">
+          <div class="wname" id="gauge-name"></div>
+          <div class="wmeta" id="gauge-meta"></div>
+        </div>
+        <div class="spinner" id="gauge-spinner" style="border-top-color:#22d3ee"></div>
+        <div class="status" id="gauge-status"></div>
+      </div>
+
     </div>
   </div>
 
@@ -477,6 +533,12 @@
       <div class="chart-tabs">
         <div class="chart-tab active" id="ctab-aorc" onclick="switchChartTab('aorc')">AORC Time Series</div>
         <div class="chart-tab"        id="ctab-lc"   onclick="switchChartTab('lc')">Land Cover</div>
+        <div class="chart-tab"        id="ctab-sf"   onclick="switchChartTab('sf')" style="display:none">Streamflow</div>
+        <button id="export-csv-btn" onclick="exportAORCCSV()"
+                style="display:none;margin-left:auto;padding:3px 10px;font-size:0.75rem;border-radius:4px;
+                       border:1px solid #334155;background:#1e293b;color:#94a3b8;cursor:pointer;">
+          Export CSV
+        </button>
       </div>
       <div class="chart-content active" id="ccontent-aorc">
         <div id="aorc-chart"></div>
@@ -485,6 +547,16 @@
       <div class="chart-content" id="ccontent-lc">
         <div id="lc-chart"></div>
         <div class="chart-placeholder" id="lc-placeholder">Run land cover analysis to see distribution</div>
+      </div>
+      <div class="chart-content" id="ccontent-sf">
+        <div id="sf-chart"></div>
+        <div class="chart-placeholder" id="sf-placeholder">Click a gauge marker on the map to see discharge</div>
+      </div>
+      <div class="stats-card" id="stats-card">
+        <div class="stat-item"><span class="stat-label">Mean</span><span class="stat-value" id="stat-mean">—</span></div>
+        <div class="stat-item"><span class="stat-label">Max</span><span class="stat-value" id="stat-max">—</span></div>
+        <div class="stat-item"><span class="stat-label" id="stat-label3">Min</span><span class="stat-value" id="stat-extra1">—</span></div>
+        <div class="stat-item"><span class="stat-label" id="stat-label4">Range</span><span class="stat-value" id="stat-extra2">—</span></div>
       </div>
     </div>
   </div>
@@ -599,6 +671,41 @@ function syncNLCDYear() {
 }
 
 // ============================================================
+// 3DEP HILLSHADE OVERLAY
+// ============================================================
+let hillshadeLayer = null;
+
+function buildHillshadeLayer() {
+  return L.tileLayer.wms(
+    'https://elevation.nationalmap.gov/arcgis/services/3DEPElevation/ImageServer/WMSServer',
+    {
+      layers: '3DEPElevation:Hillshade Gray',
+      format: 'image/png',
+      transparent: true,
+      attribution: 'USGS 3DEP',
+      opacity: document.getElementById('hillshade-opacity').value / 100,
+      pane: 'overlayPane',
+    }
+  );
+}
+
+function toggleHillshade() {
+  const on = document.getElementById('hillshade-toggle').checked;
+  document.getElementById('hillshade-controls').style.display = on ? '' : 'none';
+  if (on) {
+    hillshadeLayer = buildHillshadeLayer();
+    hillshadeLayer.addTo(map);
+  } else {
+    if (hillshadeLayer) { map.removeLayer(hillshadeLayer); hillshadeLayer = null; }
+  }
+}
+
+function updateHillshadeOpacity(val) {
+  document.getElementById('hillshade-opacity-val').textContent = val + '%';
+  if (hillshadeLayer) hillshadeLayer.setOpacity(val / 100);
+}
+
+// ============================================================
 // DRAW CONTROL
 // ============================================================
 const drawnItems = new L.FeatureGroup();
@@ -622,6 +729,7 @@ map.on(L.Draw.Event.CREATED, function (e) {
   currentBbox = { min_lon: b.getWest(), min_lat: b.getSouth(), max_lon: b.getEast(), max_lat: b.getNorth() };
   updateBboxDisplay();
   updateButtons();
+  loadGauges(currentBbox);
 });
 map.on(L.Draw.Event.DELETED, function () {
   if (!drawnItems.getLayers().length) clearBboxAOI();
@@ -632,6 +740,7 @@ function clearBboxAOI() {
   currentBbox = null;
   updateBboxDisplay();
   updateButtons();
+  clearGauges();
 }
 
 function updateBboxDisplay() {
@@ -724,6 +833,8 @@ async function selectWatershed(latlng) {
     document.getElementById('watershed-card').classList.add('visible');
     updateButtons();
     clearStatus('aorc-status');
+    const wb = watershedLayer.getBounds();
+    loadGauges({ min_lon: wb.getWest(), min_lat: wb.getSouth(), max_lon: wb.getEast(), max_lat: wb.getNorth() });
   } catch (err) {
     setStatus('aorc-status', 'USGS query failed: ' + err.message, 'error');
     document.getElementById('ws-hint').classList.add('visible');
@@ -738,6 +849,110 @@ function clearWatershed() {
   document.getElementById('watershed-card').classList.remove('visible');
   document.getElementById('ws-hint').classList.add('visible');
   updateButtons();
+  clearGauges();
+}
+
+// ============================================================
+// USGS NWIS STREAMFLOW GAUGES
+// ============================================================
+let gaugeLayerGroup = null;
+let selectedGaugeSiteNo = null;
+
+async function loadGauges(bbox) {
+  const area = (bbox.max_lon - bbox.min_lon) * (bbox.max_lat - bbox.min_lat);
+  if (area > 100) {
+    setStatus('gauge-status', 'AOI too large to load gauges (> 10°×10°).', 'error');
+    return;
+  }
+  clearGauges();
+  document.getElementById('gauge-spinner').style.display = 'block';
+  clearStatus('gauge-status');
+  try {
+    const resp = await fetch('/api/gauges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bbox),
+    });
+    const gauges = await resp.json();
+    if (!resp.ok) { setStatus('gauge-status', gauges.detail || 'Gauge query failed.', 'error'); return; }
+    if (!gauges.length) { setStatus('gauge-status', 'No active gauges found in AOI.', 'info'); return; }
+    gaugeLayerGroup = L.layerGroup().addTo(map);
+    gauges.forEach(g => {
+      if (g.lat == null || g.lon == null) return;
+      const marker = L.circleMarker([g.lat, g.lon], {
+        radius: 7, color: '#22d3ee', weight: 2, fillColor: '#0e7490', fillOpacity: 0.85,
+      });
+      const flow = g.flow_cfs != null ? g.flow_cfs.toFixed(1) + ' ft³/s' : 'N/A';
+      marker.bindTooltip(`<b>${g.name}</b><br>Flow: ${flow}`, { direction: 'top' });
+      marker.on('click', () => onGaugeClick(g));
+      gaugeLayerGroup.addLayer(marker);
+    });
+    setStatus('gauge-status', `${gauges.length} gauge(s) loaded.`, 'success');
+  } catch (err) {
+    setStatus('gauge-status', 'Gauge load error: ' + err.message, 'error');
+  } finally {
+    document.getElementById('gauge-spinner').style.display = 'none';
+  }
+}
+
+function clearGauges() {
+  if (gaugeLayerGroup) { map.removeLayer(gaugeLayerGroup); gaugeLayerGroup = null; }
+  selectedGaugeSiteNo = null;
+  document.getElementById('gauge-card').style.display = 'none';
+  clearStatus('gauge-status');
+  document.getElementById('ctab-sf').style.display = 'none';
+}
+
+async function onGaugeClick(g) {
+  selectedGaugeSiteNo = g.site_no;
+  document.getElementById('gauge-name').textContent = g.name;
+  const flow = g.flow_cfs != null ? g.flow_cfs.toFixed(1) + ' ft³/s' : 'N/A';
+  document.getElementById('gauge-meta').innerHTML =
+    `<span>Site:</span> ${g.site_no}<br><span>Flow:</span> ${flow}` +
+    (g.obs_time ? `<br><span>As of:</span> ${g.obs_time}` : '');
+  document.getElementById('gauge-card').style.display = '';
+
+  const startDate = document.getElementById('start-date').value;
+  const endDate   = document.getElementById('end-date').value;
+  if (!startDate || !endDate) return;
+
+  document.getElementById('gauge-spinner').style.display = 'block';
+  setStatus('gauge-status', 'Fetching discharge time series…', 'info');
+  try {
+    const resp = await fetch('/api/gauge_timeseries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ site_no: g.site_no, start_date: startDate, end_date: endDate }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { setStatus('gauge-status', data.detail || 'Timeseries fetch failed.', 'error'); return; }
+    clearStatus('gauge-status');
+    renderStreamflowChart(data);
+    document.getElementById('ctab-sf').style.display = '';
+    switchChartTab('sf');
+  } catch (err) {
+    setStatus('gauge-status', 'Gauge timeseries error: ' + err.message, 'error');
+  } finally {
+    document.getElementById('gauge-spinner').style.display = 'none';
+  }
+}
+
+function renderStreamflowChart(data) {
+  document.getElementById('sf-placeholder').style.display = 'none';
+  Plotly.react('sf-chart', [{
+    x: data.times, y: data.values,
+    type: 'scatter', mode: 'lines', name: 'Discharge',
+    line: { color: '#22d3ee', width: 1.5 },
+    fill: 'tozeroy', fillcolor: '#22d3ee22',
+  }], {
+    paper_bgcolor: '#1a1d27', plot_bgcolor: '#0f1117',
+    font: { color: '#94a3b8', size: 11 },
+    margin: { t: 28, r: 18, b: 46, l: 64 },
+    title: { text: `${data.name} — Discharge (ft³/s)`, font: { color: '#e2e8f0', size: 12 }, x: 0.01 },
+    xaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: 'Time', standoff: 6 } },
+    yaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: 'Discharge (ft³/s)', standoff: 6 } },
+    hovermode: 'x unified',
+  }, { responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['select2d', 'lasso2d'] });
 }
 
 // ============================================================
@@ -805,12 +1020,14 @@ function clearStatus(id) {
 // CHART TABS
 // ============================================================
 function switchChartTab(tab) {
-  ['aorc', 'lc'].forEach(t => {
-    document.getElementById(`ctab-${t}`).classList.toggle('active', t === tab);
-    document.getElementById(`ccontent-${t}`).classList.toggle('active', t === tab);
+  ['aorc', 'lc', 'sf'].forEach(t => {
+    const tabEl = document.getElementById(`ctab-${t}`);
+    const contentEl = document.getElementById(`ccontent-${t}`);
+    if (tabEl) tabEl.classList.toggle('active', t === tab);
+    if (contentEl) contentEl.classList.toggle('active', t === tab);
   });
   setTimeout(() => {
-    try { Plotly.relayout(tab === 'aorc' ? 'aorc-chart' : 'lc-chart', {}); } catch (_) {}
+    try { Plotly.relayout(tab === 'aorc' ? 'aorc-chart' : tab === 'lc' ? 'lc-chart' : 'sf-chart', {}); } catch (_) {}
   }, 30);
 }
 
@@ -829,18 +1046,28 @@ async function fetchAORC() {
   setStatus('aorc-status', 'Fetching from NOAA S3 — may take 10–60 s…', 'info');
 
   try {
+    const selectedVar = document.getElementById('variable').value;
+    const isCelsius = selectedVar === 'TMP_C';
+    const backendVar = isCelsius ? 'TMP_2maboveground' : selectedVar;
     const resp = await fetch('/api/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...aoi,
-        variable: document.getElementById('variable').value,
+        variable: backendVar,
         start_date: startDate,
         end_date: endDate,
       }),
     });
     const data = await resp.json();
     if (!resp.ok) { setStatus('aorc-status', data.detail || 'Server error', 'error'); return; }
+    if (isCelsius) {
+      data.values = data.values.map(v => v === null ? null : Math.round((v - 273.15) * 100) / 100);
+      data.label = 'Temperature';
+      data.units = '°C';
+    }
+    lastAORCData = data;
+    document.getElementById('export-csv-btn').style.display = '';
     setStatus('aorc-status', `Loaded ${data.n_times} hourly records.`, 'success');
     renderAORCChart(data);
     switchChartTab('aorc');
@@ -852,10 +1079,21 @@ async function fetchAORC() {
   }
 }
 
+const COLOR_MAP = {
+  'APCP_surface':        '#60a5fa',  // blue
+  'TMP_2maboveground':   '#fb923c',  // orange
+  'SPFH_2maboveground':  '#34d399',  // green
+  'DLWRF_surface':       '#f472b6',  // pink
+  'DSWRF_surface':       '#facc15',  // yellow
+  'PRES_surface':        '#a78bfa',  // violet
+  'UGRD_10maboveground': '#22d3ee',  // cyan
+  'VGRD_10maboveground': '#f87171',  // red
+};
+let lastAORCData = null;
+
 function renderAORCChart(data) {
   document.getElementById('aorc-placeholder').style.display = 'none';
-  const isTemp = data.variable === 'TMP_2maboveground';
-  const color = isTemp ? '#fb923c' : '#60a5fa';
+  const color = COLOR_MAP[data.variable] || '#60a5fa';
   Plotly.react('aorc-chart', [{
     x: data.times, y: data.values,
     type: 'scatter', mode: 'lines', name: data.label,
@@ -870,6 +1108,49 @@ function renderAORCChart(data) {
     yaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: `${data.label} (${data.units})`, standoff: 6 } },
     hovermode: 'x unified',
   }, { responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['select2d', 'lasso2d'] });
+  renderStatsCard(data);
+}
+
+function computeStats(data) {
+  const vals = data.values.filter(v => v !== null);
+  if (!vals.length) return null;
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const isPrec = data.variable === 'APCP_surface';
+  if (isPrec) {
+    const total = vals.reduce((a, b) => a + b, 0);
+    const dryPct = vals.filter(v => v === 0).length / vals.length * 100;
+    return { mean, max, extra1Label: 'Total (mm)', extra1: total, extra2Label: 'Dry Hours', extra2: dryPct.toFixed(1) + '%' };
+  }
+  return { mean, max, extra1Label: 'Min', extra1: min, extra2Label: 'Range', extra2: max - min };
+}
+
+function renderStatsCard(data) {
+  const stats = computeStats(data);
+  const card = document.getElementById('stats-card');
+  if (!stats) { card.classList.remove('visible'); return; }
+  const fmt = v => typeof v === 'number' ? (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3)) : v;
+  document.getElementById('stat-mean').textContent   = fmt(stats.mean)   + ' ' + data.units;
+  document.getElementById('stat-max').textContent    = fmt(stats.max)    + ' ' + data.units;
+  document.getElementById('stat-label3').textContent  = stats.extra1Label;
+  document.getElementById('stat-extra1').textContent  = fmt(stats.extra1) + (stats.extra1Label === 'Dry Hours' ? '' : ' ' + data.units);
+  document.getElementById('stat-label4').textContent  = stats.extra2Label;
+  document.getElementById('stat-extra2').textContent  = fmt(stats.extra2) + (stats.extra2Label === 'Range' || stats.extra2Label === 'Total (mm)' ? ' ' + data.units : '');
+  card.classList.add('visible');
+}
+
+function exportAORCCSV() {
+  if (!lastAORCData) return;
+  const { times, values, variable, label, units } = lastAORCData;
+  const rows = ['time,' + label + ' (' + units + ')'];
+  times.forEach((t, i) => rows.push(`${t},${values[i] === null ? '' : values[i]}`));
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `aorc_${variable}_${times[0].slice(0, 10)}_to_${times[times.length - 1].slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // ============================================================
