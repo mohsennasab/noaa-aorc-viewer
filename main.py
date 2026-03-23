@@ -320,7 +320,7 @@ async def gauge_list(req: GaugeListRequest):
     loop = asyncio.get_event_loop()
 
     def _fetch():
-        bbox = f"{req.min_lon},{req.min_lat},{req.max_lon},{req.max_lat}"
+        bbox = f"{round(req.min_lon,4)},{round(req.min_lat,4)},{round(req.max_lon,4)},{round(req.max_lat,4)}"
         params = {
             "format": "json",
             "parameterCd": NWIS_PARAM,
