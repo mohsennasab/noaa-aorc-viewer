@@ -7,3 +7,5 @@ fsspec
 numpy
 pandas
 shapely
+rasterio
+requests

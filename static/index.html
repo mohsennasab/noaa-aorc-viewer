@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NOAA AORC Viewer</title>
+  <title>NOAA AORC + NLCD Viewer</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -40,7 +40,7 @@
 
     /* ---- Sidebar ---- */
     .sidebar {
-      width: 290px;
+      width: 296px;
       flex-shrink: 0;
       background: #1a1d27;
       border-right: 1px solid #2d3148;
@@ -68,17 +68,23 @@
       user-select: none;
     }
     .mode-tab:hover { color: #94a3b8; }
-    .mode-tab.active { color: #7dd3fc; border-bottom-color: #7dd3fc; background: #13162050; }
+    .mode-tab.active { color: #7dd3fc; border-bottom-color: #7dd3fc; }
 
-    .sidebar-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; flex: 1; }
+    .sidebar-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
 
     .section-title {
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.09em;
       text-transform: uppercase;
       color: #64748b;
-      margin-bottom: 8px;
+      margin-bottom: 7px;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #2d3148;
+      margin: 2px 0;
     }
 
     label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px; }
@@ -109,7 +115,6 @@
     }
     .info-box.set { color: #7dd3fc; border-color: #1e4060; }
 
-    /* Watershed card */
     .watershed-card {
       background: #0f1117;
       border: 1px solid #1d4ed8;
@@ -118,20 +123,10 @@
       display: none;
     }
     .watershed-card.visible { display: block; }
-    .watershed-card .wname {
-      font-size: 0.88rem;
-      font-weight: 600;
-      color: #93c5fd;
-      margin-bottom: 4px;
-    }
-    .watershed-card .wmeta {
-      font-size: 0.75rem;
-      color: #64748b;
-      line-height: 1.6;
-    }
+    .watershed-card .wname { font-size: 0.88rem; font-weight: 600; color: #93c5fd; margin-bottom: 4px; }
+    .watershed-card .wmeta { font-size: 0.75rem; color: #64748b; line-height: 1.6; }
     .watershed-card .wmeta span { color: #94a3b8; }
 
-    /* Click mode indicator on map */
     #map.watershed-select-mode { cursor: crosshair !important; }
 
     .ws-active-hint {
@@ -146,12 +141,61 @@
     }
     .ws-active-hint.visible { display: block; }
 
+    .ws-loading { display: none; font-size: 0.75rem; color: #64748b; text-align: center; padding: 4px 0; }
+
+    /* WMS overlay row */
+    .wms-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .wms-toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .wms-toggle input { opacity: 0; width: 0; height: 0; }
+    .wms-toggle .slider {
+      position: absolute;
+      inset: 0;
+      background: #2d3148;
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .wms-toggle .slider::before {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      left: 3px; top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .wms-toggle input:checked + .slider { background: #0284c7; }
+    .wms-toggle input:checked + .slider::before { transform: translateX(16px); }
+    .wms-label { font-size: 0.8rem; color: #94a3b8; }
+
+    .opacity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .opacity-row label { margin: 0; white-space: nowrap; font-size: 0.75rem; }
+    input[type="range"] {
+      flex: 1;
+      accent-color: #0284c7;
+    }
+    .opacity-val { font-size: 0.75rem; color: #64748b; width: 28px; text-align: right; }
+
     .btn {
       width: 100%;
-      padding: 10px;
+      padding: 9px;
       border: none;
       border-radius: 8px;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       font-weight: 600;
       cursor: pointer;
       transition: background 0.2s, opacity 0.2s;
@@ -159,13 +203,15 @@
     .btn-primary { background: #0284c7; color: white; }
     .btn-primary:hover:not(:disabled) { background: #0369a1; }
     .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-
+    .btn-green { background: #16a34a; color: white; }
+    .btn-green:hover:not(:disabled) { background: #15803d; }
+    .btn-green:disabled { opacity: 0.45; cursor: not-allowed; }
     .btn-secondary {
       background: #1e293b;
       color: #94a3b8;
       border: 1px solid #2d3148;
-      font-size: 0.8rem;
-      padding: 7px;
+      font-size: 0.78rem;
+      padding: 6px;
     }
     .btn-secondary:hover { background: #263348; }
 
@@ -175,22 +221,48 @@
       border-radius: 6px;
       display: none;
     }
-    .status.info { background: #0c2a3d; border: 1px solid #0284c7; color: #7dd3fc; display: block; }
-    .status.error { background: #2d1010; border: 1px solid #ef4444; color: #fca5a5; display: block; }
+    .status.info    { background: #0c2a3d; border: 1px solid #0284c7; color: #7dd3fc; display: block; }
+    .status.error   { background: #2d1010; border: 1px solid #ef4444; color: #fca5a5; display: block; }
     .status.success { background: #0d2d1a; border: 1px solid #22c55e; color: #86efac; display: block; }
+    .status.warn    { background: #2a200a; border: 1px solid #f59e0b; color: #fcd34d; display: block; }
 
-    /* Right panel */
+    .hint { font-size: 0.75rem; color: #475569; line-height: 1.4; }
+
+    /* ---- Right panel ---- */
     .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
     #map { flex: 1; min-height: 0; }
 
+    /* Chart panel with tabs */
     .chart-panel {
-      height: 260px;
+      height: 290px;
       flex-shrink: 0;
       background: #1a1d27;
       border-top: 1px solid #2d3148;
-      position: relative;
+      display: flex;
+      flex-direction: column;
     }
-    #chart { width: 100%; height: 100%; }
+    .chart-tabs {
+      display: flex;
+      border-bottom: 1px solid #2d3148;
+      flex-shrink: 0;
+    }
+    .chart-tab {
+      padding: 7px 16px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .chart-tab:hover { color: #94a3b8; }
+    .chart-tab.active { color: #e2e8f0; border-bottom-color: #7dd3fc; }
+
+    .chart-content { flex: 1; position: relative; display: none; min-height: 0; }
+    .chart-content.active { display: block; }
+    .chart-content > div:first-child { width: 100%; height: 100%; }
+
     .chart-placeholder {
       position: absolute;
       inset: 0;
@@ -204,126 +276,160 @@
 
     .spinner {
       display: none;
-      width: 18px;
-      height: 18px;
+      width: 18px; height: 18px;
       border: 2px solid #2d3148;
       border-top-color: #7dd3fc;
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
       margin: 0 auto;
     }
+    .spinner.green { border-top-color: #22c55e; }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    .hint { font-size: 0.75rem; color: #475569; line-height: 1.4; }
-    .ws-loading {
-      display: none;
-      font-size: 0.75rem;
-      color: #64748b;
-      text-align: center;
-      padding: 4px 0;
-    }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>NOAA AORC Viewer</h1>
-  <span>Select an AOI or watershed, then fetch hourly precipitation &amp; temperature data</span>
+  <h1>NOAA AORC + NLCD Viewer</h1>
+  <span>Analyze hourly climate data and land cover distribution for any drawn AOI or USGS watershed</span>
 </header>
 
 <div class="main">
+  <!-- ===================== SIDEBAR ===================== -->
   <div class="sidebar">
 
-    <!-- Mode tabs -->
     <div class="mode-tabs">
-      <div class="mode-tab active" id="tab-bbox" onclick="switchMode('bbox')">Draw AOI</div>
-      <div class="mode-tab" id="tab-watershed" onclick="switchMode('watershed')">Select Watershed</div>
+      <div class="mode-tab active" id="tab-bbox"      onclick="switchMode('bbox')">Draw AOI</div>
+      <div class="mode-tab"        id="tab-watershed" onclick="switchMode('watershed')">Select Watershed</div>
     </div>
 
     <div class="sidebar-body">
 
-      <!-- ===== BBOX PANEL ===== -->
+      <!-- AOI panel (Draw mode) -->
       <div id="panel-bbox">
         <div class="section-title">1. Draw AOI</div>
-        <p class="hint">Use the rectangle tool on the map. AORC covers the contiguous US (lat 20–55, lon -130 to -60).</p>
-        <div style="height:8px"></div>
+        <p class="hint">Use the rectangle tool. AORC + NLCD cover CONUS (lat 20–55, lon -130 to -60).</p>
+        <div style="height:7px"></div>
         <div id="bbox-display" class="info-box">No area drawn</div>
-        <div style="height:6px"></div>
+        <div style="height:5px"></div>
         <button class="btn btn-secondary" onclick="clearBboxAOI()">Clear Rectangle</button>
       </div>
 
-      <!-- ===== WATERSHED PANEL ===== -->
+      <!-- AOI panel (Watershed mode) -->
       <div id="panel-watershed" style="display:none">
         <div class="section-title">1. Select Watershed</div>
         <label for="huc-level">HUC level</label>
-        <select id="huc-level" onchange="onHucLevelChange()">
+        <select id="huc-level" onchange="clearWatershed()">
           <option value="2">HUC-4 (Subregion)</option>
           <option value="3">HUC-6 (Basin)</option>
           <option value="4" selected>HUC-8 (Subbasin) — recommended</option>
           <option value="5">HUC-10 (Watershed)</option>
           <option value="6">HUC-12 (Subwatershed)</option>
         </select>
-        <div style="height:8px"></div>
+        <div style="height:7px"></div>
         <div class="ws-active-hint visible" id="ws-hint">Click anywhere on the map to select a watershed</div>
         <div class="ws-loading" id="ws-loading">Querying USGS WBD…</div>
-        <div style="height:8px"></div>
+        <div style="height:6px"></div>
         <div class="watershed-card" id="watershed-card">
           <div class="wname" id="ws-name"></div>
           <div class="wmeta" id="ws-meta"></div>
         </div>
-        <div style="height:6px"></div>
+        <div style="height:5px"></div>
         <button class="btn btn-secondary" onclick="clearWatershed()">Clear Watershed</button>
       </div>
 
-      <!-- ===== SHARED: Variable ===== -->
+      <hr class="divider" />
+
+      <!-- AORC section -->
       <div>
-        <div class="section-title">2. Variable</div>
-        <label for="variable">Select variable</label>
+        <div class="section-title">2. AORC Climate Data</div>
+        <label for="variable">Variable</label>
         <select id="variable">
           <option value="APCP_surface">Precipitation (mm/hr)</option>
           <option value="TMP_2maboveground">Temperature (K)</option>
         </select>
-      </div>
-
-      <!-- ===== SHARED: Date range ===== -->
-      <div>
-        <div class="section-title">3. Date Range</div>
+        <div style="height:8px"></div>
         <label for="start-date">Start date</label>
         <input type="date" id="start-date" value="2020-07-01" min="1979-01-01" max="2025-12-31" />
-        <div style="height:8px"></div>
+        <div style="height:6px"></div>
         <label for="end-date">End date</label>
         <input type="date" id="end-date" value="2020-07-07" min="1979-01-01" max="2025-12-31" />
-        <div style="height:6px"></div>
-        <p class="hint">Max 180 days per query. Data is hourly.</p>
+        <div style="height:5px"></div>
+        <p class="hint">Max 180 days · hourly data · 1979–2025</p>
+        <div style="height:8px"></div>
+        <button class="btn btn-primary" id="fetch-btn" onclick="fetchAORC()" disabled>Fetch Climate Data</button>
+        <div style="height:8px"></div>
+        <div class="spinner" id="aorc-spinner"></div>
+        <div class="status" id="aorc-status"></div>
       </div>
 
-      <!-- ===== SHARED: Fetch ===== -->
+      <hr class="divider" />
+
+      <!-- NLCD section -->
       <div>
-        <div class="section-title">4. Fetch</div>
-        <button class="btn btn-primary" id="fetch-btn" onclick="fetchData()" disabled>
-          Fetch Data
-        </button>
-        <div style="height:10px"></div>
-        <div class="spinner" id="spinner"></div>
-        <div class="status" id="status"></div>
+        <div class="section-title">3. NLCD Land Cover Analysis</div>
+        <label for="nlcd-year">NLCD year</label>
+        <select id="nlcd-year">
+          <option value="2021" selected>2021</option>
+          <option value="2019">2019</option>
+          <option value="2016">2016</option>
+          <option value="2013">2013</option>
+          <option value="2011">2011</option>
+          <option value="2008">2008</option>
+          <option value="2006">2006</option>
+          <option value="2004">2004</option>
+          <option value="2001">2001</option>
+        </select>
+        <div style="height:8px"></div>
+
+        <!-- WMS overlay toggle -->
+        <div class="wms-row">
+          <label class="wms-toggle">
+            <input type="checkbox" id="wms-toggle" onchange="toggleWMSLayer()" />
+            <span class="slider"></span>
+          </label>
+          <span class="wms-label">Show NLCD on map</span>
+        </div>
+        <div class="opacity-row" id="opacity-row" style="display:none">
+          <label>Opacity</label>
+          <input type="range" id="wms-opacity" min="10" max="100" value="70" oninput="updateWMSOpacity(this.value)" />
+          <span class="opacity-val" id="opacity-val">70%</span>
+        </div>
+        <div style="height:8px"></div>
+
+        <button class="btn btn-green" id="lc-btn" onclick="fetchLandCover()" disabled>Analyze Land Cover</button>
+        <div style="height:8px"></div>
+        <div class="spinner green" id="lc-spinner"></div>
+        <div class="status" id="lc-status"></div>
       </div>
 
     </div><!-- /sidebar-body -->
   </div><!-- /sidebar -->
 
-  <!-- Map + Chart -->
+  <!-- ===================== MAP + CHARTS ===================== -->
   <div class="right-panel">
     <div id="map"></div>
+
     <div class="chart-panel">
-      <div id="chart"></div>
-      <div class="chart-placeholder" id="chart-placeholder">Fetch data to see the time series plot</div>
+      <div class="chart-tabs">
+        <div class="chart-tab active" id="ctab-aorc" onclick="switchChartTab('aorc')">AORC Time Series</div>
+        <div class="chart-tab"        id="ctab-lc"   onclick="switchChartTab('lc')">Land Cover</div>
+      </div>
+      <div class="chart-content active" id="ccontent-aorc">
+        <div id="aorc-chart"></div>
+        <div class="chart-placeholder" id="aorc-placeholder">Fetch climate data to see the time series</div>
+      </div>
+      <div class="chart-content" id="ccontent-lc">
+        <div id="lc-chart"></div>
+        <div class="chart-placeholder" id="lc-placeholder">Run land cover analysis to see distribution</div>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
 // ============================================================
-// MAP SETUP
+// MAP
 // ============================================================
 const map = L.map('map', {
   maxBounds: [[15, -140], [60, -50]],
@@ -336,7 +442,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 }).addTo(map);
 
 // ============================================================
-// DRAW CONTROL (bbox mode)
+// DRAW CONTROL
 // ============================================================
 const drawnItems = new L.FeatureGroup();
 map.addLayer(drawnItems);
@@ -358,18 +464,17 @@ map.on(L.Draw.Event.CREATED, function (e) {
   const b = e.layer.getBounds();
   currentBbox = { min_lon: b.getWest(), min_lat: b.getSouth(), max_lon: b.getEast(), max_lat: b.getNorth() };
   updateBboxDisplay();
-  updateFetchBtn();
+  updateButtons();
 });
-
 map.on(L.Draw.Event.DELETED, function () {
-  if (drawnItems.getLayers().length === 0) clearBboxAOI();
+  if (!drawnItems.getLayers().length) clearBboxAOI();
 });
 
 function clearBboxAOI() {
   drawnItems.clearLayers();
   currentBbox = null;
   updateBboxDisplay();
-  updateFetchBtn();
+  updateButtons();
 }
 
 function updateBboxDisplay() {
@@ -388,23 +493,19 @@ function updateBboxDisplay() {
 // WATERSHED MODE
 // ============================================================
 const WBD_BASE = 'https://hydrowfs.nationalmap.gov/arcgis/rest/services/wbd/MapServer';
-
-// Layer ID → HUC digit count mapping
 const HUC_DIGITS = { '2': 4, '3': 6, '4': 8, '5': 10, '6': 12 };
 
 let currentMode = 'bbox';
-let watershedGeometry = null;   // GeoJSON geometry object
-let watershedLayer = null;      // Leaflet layer
+let watershedGeometry = null;
+let watershedLayer = null;
 
 function switchMode(mode) {
   currentMode = mode;
-  document.getElementById('tab-bbox').classList.toggle('active', mode === 'bbox');
-  document.getElementById('tab-watershed').classList.toggle('active', mode === 'watershed');
-  document.getElementById('panel-bbox').style.display = mode === 'bbox' ? '' : 'none';
-  document.getElementById('panel-watershed').style.display = mode === 'watershed' ? '' : 'none';
-
+  ['bbox','watershed'].forEach(m => {
+    document.getElementById(`tab-${m}`).classList.toggle('active', m === mode);
+    document.getElementById(`panel-${m}`).style.display = m === mode ? '' : 'none';
+  });
   if (mode === 'watershed') {
-    // Hide draw controls, enable click select
     document.querySelector('.leaflet-draw').style.display = 'none';
     drawnItems.clearLayers();
     currentBbox = null;
@@ -414,12 +515,7 @@ function switchMode(mode) {
     document.getElementById('map').classList.remove('watershed-select-mode');
     clearWatershed();
   }
-  updateFetchBtn();
-}
-
-function onHucLevelChange() {
-  // Clear current watershed when level changes
-  clearWatershed();
+  updateButtons();
 }
 
 map.on('click', async function (e) {
@@ -429,15 +525,12 @@ map.on('click', async function (e) {
 
 async function selectWatershed(latlng) {
   const layerId = document.getElementById('huc-level').value;
-
   document.getElementById('ws-hint').classList.remove('visible');
   document.getElementById('ws-loading').style.display = 'block';
   document.getElementById('watershed-card').classList.remove('visible');
-
-  // Clear previous watershed layer
   if (watershedLayer) { map.removeLayer(watershedLayer); watershedLayer = null; }
   watershedGeometry = null;
-  updateFetchBtn();
+  updateButtons();
 
   try {
     const params = new URLSearchParams({
@@ -448,13 +541,12 @@ async function selectWatershed(latlng) {
       returnGeometry: true,
       f: 'geojson',
     });
-
     const resp = await fetch(`${WBD_BASE}/${layerId}/query?${params}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const geojson = await resp.json();
 
-    if (!geojson.features || geojson.features.length === 0) {
-      setStatus('No watershed found at this location. Click within the CONUS boundary.', 'error');
+    if (!geojson.features?.length) {
+      setStatus('aorc-status', 'No watershed found at this location.', 'error');
       document.getElementById('ws-hint').classList.add('visible');
       return;
     }
@@ -462,38 +554,28 @@ async function selectWatershed(latlng) {
     const feature = geojson.features[0];
     watershedGeometry = feature.geometry;
 
-    // Add polygon to map
     watershedLayer = L.geoJSON(feature, {
-      style: {
-        color: '#3b82f6',
-        weight: 2,
-        fillColor: '#3b82f6',
-        fillOpacity: 0.15,
-      },
+      style: { color: '#3b82f6', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.12 },
     }).addTo(map);
     map.fitBounds(watershedLayer.getBounds(), { padding: [30, 30] });
 
-    // Show watershed info
     const props = feature.properties;
     const digits = HUC_DIGITS[layerId];
-    const hucField = `huc${digits}`;
-    const hucCode = props[hucField] || props.huc || 'N/A';
-    const name = props.name || props.Name || 'Unknown';
-    const area = props.areasqkm ? `${Number(props.areasqkm).toLocaleString(undefined, {maximumFractionDigits: 1})} km²` : 'N/A';
-    const states = props.states || '';
+    const hucCode = props[`huc${digits}`] || 'N/A';
+    const area = props.areasqkm
+      ? `${Number(props.areasqkm).toLocaleString(undefined, { maximumFractionDigits: 1 })} km²`
+      : 'N/A';
 
-    document.getElementById('ws-name').textContent = name;
+    document.getElementById('ws-name').textContent = props.name || 'Unknown';
     document.getElementById('ws-meta').innerHTML =
       `<span>HUC-${digits}:</span> ${hucCode}<br>` +
       `<span>Area:</span> ${area}` +
-      (states ? `<br><span>States:</span> ${states}` : '');
-
+      (props.states ? `<br><span>States:</span> ${props.states}` : '');
     document.getElementById('watershed-card').classList.add('visible');
-    updateFetchBtn();
-    clearStatus();
-
+    updateButtons();
+    clearStatus('aorc-status');
   } catch (err) {
-    setStatus('Failed to query USGS watershed service: ' + err.message, 'error');
+    setStatus('aorc-status', 'USGS query failed: ' + err.message, 'error');
     document.getElementById('ws-hint').classList.add('visible');
   } finally {
     document.getElementById('ws-loading').style.display = 'none';
@@ -505,52 +587,116 @@ function clearWatershed() {
   watershedGeometry = null;
   document.getElementById('watershed-card').classList.remove('visible');
   document.getElementById('ws-hint').classList.add('visible');
-  updateFetchBtn();
-  clearStatus();
+  updateButtons();
 }
+
+// ============================================================
+// WMS LAYER
+// ============================================================
+let wmsLayer = null;
+
+function buildWMSLayer(year) {
+  return L.tileLayer.wms('https://www.mrlc.gov/geoserver/NLCD_Land_Cover/wms', {
+    layers: `NLCD_${year}_Land_Cover_L48`,
+    format: 'image/png',
+    transparent: true,
+    opacity: parseFloat(document.getElementById('wms-opacity').value) / 100,
+    version: '1.1.1',
+    attribution: 'USGS MRLC NLCD',
+  });
+}
+
+function toggleWMSLayer() {
+  const on = document.getElementById('wms-toggle').checked;
+  document.getElementById('opacity-row').style.display = on ? '' : 'none';
+  if (on) {
+    const year = document.getElementById('nlcd-year').value;
+    wmsLayer = buildWMSLayer(year);
+    wmsLayer.addTo(map);
+  } else {
+    if (wmsLayer) { map.removeLayer(wmsLayer); wmsLayer = null; }
+  }
+}
+
+function updateWMSOpacity(val) {
+  document.getElementById('opacity-val').textContent = val + '%';
+  if (wmsLayer) wmsLayer.setOpacity(val / 100);
+}
+
+document.getElementById('nlcd-year').addEventListener('change', function () {
+  if (wmsLayer) {
+    map.removeLayer(wmsLayer);
+    wmsLayer = buildWMSLayer(this.value);
+    wmsLayer.addTo(map);
+  }
+});
 
 // ============================================================
 // SHARED HELPERS
 // ============================================================
-function updateFetchBtn() {
-  const ready = currentMode === 'bbox' ? !!currentBbox : !!watershedGeometry;
-  document.getElementById('fetch-btn').disabled = !ready;
+function aoiPayload() {
+  if (currentMode === 'watershed' && watershedGeometry) {
+    return { geometry: watershedGeometry };
+  }
+  if (currentMode === 'bbox' && currentBbox) {
+    return { ...currentBbox };
+  }
+  return null;
 }
 
-function setStatus(msg, type) {
-  const el = document.getElementById('status');
+function hasAOI() {
+  return currentMode === 'watershed' ? !!watershedGeometry : !!currentBbox;
+}
+
+function updateButtons() {
+  const ready = hasAOI();
+  document.getElementById('fetch-btn').disabled = !ready;
+  document.getElementById('lc-btn').disabled = !ready;
+}
+
+function setStatus(id, msg, type) {
+  const el = document.getElementById(id);
   el.textContent = msg;
   el.className = 'status ' + type;
 }
-
-function clearStatus() {
-  document.getElementById('status').className = 'status';
+function clearStatus(id) {
+  document.getElementById(id).className = 'status';
 }
 
 // ============================================================
-// FETCH DATA
+// CHART TABS
 // ============================================================
-async function fetchData() {
-  const variable = document.getElementById('variable').value;
+function switchChartTab(tab) {
+  ['aorc', 'lc'].forEach(t => {
+    document.getElementById(`ctab-${t}`).classList.toggle('active', t === tab);
+    document.getElementById(`ccontent-${t}`).classList.toggle('active', t === tab);
+  });
+  // Re-trigger Plotly resize after tab switch
+  setTimeout(() => { try { Plotly.relayout(tab === 'aorc' ? 'aorc-chart' : 'lc-chart', {}); } catch(_){} }, 50);
+}
+
+// ============================================================
+// FETCH AORC
+// ============================================================
+async function fetchAORC() {
+  const aoi = aoiPayload();
+  if (!aoi) return;
+
   const startDate = document.getElementById('start-date').value;
-  const endDate = document.getElementById('end-date').value;
-
-  if (!startDate || !endDate) { setStatus('Please select a date range.', 'error'); return; }
-
-  let payload;
-  if (currentMode === 'watershed') {
-    if (!watershedGeometry) return;
-    payload = { geometry: watershedGeometry, variable, start_date: startDate, end_date: endDate };
-  } else {
-    if (!currentBbox) return;
-    payload = { ...currentBbox, variable, start_date: startDate, end_date: endDate };
-  }
+  const endDate   = document.getElementById('end-date').value;
+  if (!startDate || !endDate) { setStatus('aorc-status', 'Select a date range.', 'error'); return; }
 
   const btn = document.getElementById('fetch-btn');
-  const spinner = document.getElementById('spinner');
   btn.disabled = true;
-  spinner.style.display = 'block';
-  setStatus('Fetching from NOAA S3 — may take 10–60 s depending on AOI size…', 'info');
+  document.getElementById('aorc-spinner').style.display = 'block';
+  setStatus('aorc-status', 'Fetching from NOAA S3 — may take 10–60 s…', 'info');
+
+  const payload = {
+    ...aoi,
+    variable: document.getElementById('variable').value,
+    start_date: startDate,
+    end_date: endDate,
+  };
 
   try {
     const resp = await fetch('/api/query', {
@@ -559,50 +705,115 @@ async function fetchData() {
       body: JSON.stringify(payload),
     });
     const data = await resp.json();
-    if (!resp.ok) { setStatus(data.detail || 'Server error', 'error'); return; }
-    setStatus(`Loaded ${data.n_times} hourly records.`, 'success');
-    renderChart(data);
+    if (!resp.ok) { setStatus('aorc-status', data.detail || 'Server error', 'error'); return; }
+    setStatus('aorc-status', `Loaded ${data.n_times} hourly records.`, 'success');
+    renderAORCChart(data);
+    switchChartTab('aorc');
   } catch (err) {
-    setStatus('Network error: ' + err.message, 'error');
+    setStatus('aorc-status', 'Network error: ' + err.message, 'error');
   } finally {
-    btn.disabled = false;
-    spinner.style.display = 'none';
-    updateFetchBtn(); // re-enable if AOI still set
+    document.getElementById('aorc-spinner').style.display = 'none';
+    updateButtons();
   }
 }
 
-// ============================================================
-// CHART
-// ============================================================
-function renderChart(data) {
-  document.getElementById('chart-placeholder').style.display = 'none';
+function renderAORCChart(data) {
+  document.getElementById('aorc-placeholder').style.display = 'none';
   const isTemp = data.variable === 'TMP_2maboveground';
   const color = isTemp ? '#fb923c' : '#60a5fa';
 
-  Plotly.react('chart', [{
-    x: data.times,
-    y: data.values,
-    type: 'scatter',
-    mode: 'lines',
+  Plotly.react('aorc-chart', [{
+    x: data.times, y: data.values,
+    type: 'scatter', mode: 'lines',
     name: data.label,
     line: { color, width: 1.5 },
-    fill: 'tozeroy',
-    fillcolor: color + '22',
+    fill: 'tozeroy', fillcolor: color + '22',
   }], {
-    paper_bgcolor: '#1a1d27',
-    plot_bgcolor: '#0f1117',
+    paper_bgcolor: '#1a1d27', plot_bgcolor: '#0f1117',
     font: { color: '#94a3b8', size: 11 },
-    margin: { t: 30, r: 20, b: 50, l: 60 },
-    title: { text: `Spatial Average — ${data.label} (${data.units})`, font: { color: '#e2e8f0', size: 13 }, x: 0.01 },
-    xaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: 'Time (UTC)', standoff: 8 } },
-    yaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: `${data.label} (${data.units})`, standoff: 8 } },
+    margin: { t: 28, r: 18, b: 46, l: 56 },
+    title: { text: `Spatial Mean — ${data.label} (${data.units})`, font: { color: '#e2e8f0', size: 12 }, x: 0.01 },
+    xaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: 'Time (UTC)', standoff: 6 } },
+    yaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: `${data.label} (${data.units})`, standoff: 6 } },
     hovermode: 'x unified',
-  }, {
-    responsive: true,
-    displayModeBar: true,
-    displaylogo: false,
-    modeBarButtonsToRemove: ['select2d', 'lasso2d'],
-  });
+  }, { responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['select2d','lasso2d'] });
+}
+
+// ============================================================
+// FETCH LAND COVER
+// ============================================================
+async function fetchLandCover() {
+  const aoi = aoiPayload();
+  if (!aoi) return;
+
+  const btn = document.getElementById('lc-btn');
+  btn.disabled = true;
+  document.getElementById('lc-spinner').style.display = 'block';
+  setStatus('lc-status', 'Fetching NLCD from MRLC WCS — may take 10–30 s…', 'info');
+
+  // Auto-enable WMS overlay if not already on
+  if (!document.getElementById('wms-toggle').checked) {
+    document.getElementById('wms-toggle').checked = true;
+    toggleWMSLayer();
+  }
+
+  const payload = {
+    ...aoi,
+    year: parseInt(document.getElementById('nlcd-year').value),
+  };
+
+  try {
+    const resp = await fetch('/api/landcover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { setStatus('lc-status', data.detail || 'Server error', 'error'); return; }
+    const n = Object.keys(data.classes).length;
+    setStatus('lc-status', `${n} land cover classes found (${data.total_pixels.toLocaleString()} pixels).`, 'success');
+    renderLandCoverChart(data);
+    switchChartTab('lc');
+  } catch (err) {
+    setStatus('lc-status', 'Network error: ' + err.message, 'error');
+  } finally {
+    document.getElementById('lc-spinner').style.display = 'none';
+    updateButtons();
+  }
+}
+
+function renderLandCoverChart(data) {
+  document.getElementById('lc-placeholder').style.display = 'none';
+
+  // Sort by percent descending
+  const entries = Object.values(data.classes).sort((a, b) => b.percent - a.percent);
+
+  Plotly.react('lc-chart', [{
+    type: 'bar',
+    orientation: 'h',
+    x: entries.map(e => e.percent),
+    y: entries.map(e => e.name),
+    marker: { color: entries.map(e => e.color), line: { color: '#0f1117', width: 0.5 } },
+    text: entries.map(e => `${e.percent}%`),
+    textposition: 'outside',
+    cliponaxis: false,
+    hovertemplate: '<b>%{y}</b><br>%{x:.2f}%<extra></extra>',
+  }], {
+    paper_bgcolor: '#1a1d27', plot_bgcolor: '#0f1117',
+    font: { color: '#94a3b8', size: 11 },
+    margin: { t: 28, r: 60, b: 36, l: 210 },
+    title: {
+      text: `NLCD ${data.year} Land Cover Distribution`,
+      font: { color: '#e2e8f0', size: 12 }, x: 0.01,
+    },
+    xaxis: {
+      gridcolor: '#1e293b', linecolor: '#334155',
+      title: { text: 'Area (%)', standoff: 4 },
+      range: [0, Math.min(100, Math.max(...entries.map(e => e.percent)) * 1.18)],
+    },
+    yaxis: { gridcolor: '#1e293b', linecolor: '#334155', automargin: true },
+    bargap: 0.25,
+  }, { responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['select2d','lasso2d'] });
 }
 </script>
 </body>
