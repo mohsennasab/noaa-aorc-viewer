@@ -659,7 +659,7 @@
             <span class="unit-btn active" id="unit-si" onclick="setUnitSystem('si')">SI</span>
             <span class="unit-btn"        id="unit-us" onclick="setUnitSystem('us')">US</span>
           </div>
-          <button id="export-csv-btn" onclick="exportAORCCSV()"
+          <button id="export-csv-btn" onclick="exportCurrentCSV()"
                   style="display:none;padding:3px 10px;font-size:0.75rem;border-radius:4px;
                          border:1px solid #334155;background:#1e293b;color:#94a3b8;cursor:pointer;">
             Export CSV
@@ -1116,10 +1116,13 @@ function clearGauges() {
   if (gaugeLayerGroup) { map.removeLayer(gaugeLayerGroup); gaugeLayerGroup = null; }
   selectedGaugeSiteNo = null;
   currentGauges = [];
+  lastSFData = null;
   document.getElementById('gauge-card').style.display = 'none';
   document.getElementById('export-gauges-btn').style.display = 'none';
   clearStatus('gauge-status');
   document.getElementById('ctab-sf').style.display = 'none';
+  // If SF tab was active, switch back to AORC
+  if (document.getElementById('ctab-sf').classList.contains('active')) switchChartTab('aorc');
 }
 
 async function onGaugeClick(g) {
@@ -1153,9 +1156,9 @@ async function onGaugeClick(g) {
     const data = await resp.json();
     if (!resp.ok) { setStatus('gauge-status', data.detail || 'Timeseries fetch failed.', 'error'); return; }
     clearStatus('gauge-status');
-    renderStreamflowChart(data);
     document.getElementById('ctab-sf').style.display = '';
     switchChartTab('sf');
+    renderStreamflowChart(data);
   } catch (err) {
     setStatus('gauge-status', 'Gauge timeseries error: ' + err.message, 'error');
   } finally {
@@ -1164,6 +1167,7 @@ async function onGaugeClick(g) {
 }
 
 function renderStreamflowChart(data) {
+  lastSFData = data;
   document.getElementById('sf-placeholder').style.display = 'none';
   Plotly.react('sf-chart', [{
     x: data.times, y: data.values,
@@ -1253,6 +1257,18 @@ function switchChartTab(tab) {
     if (contentEl) contentEl.classList.toggle('active', t === tab);
   });
   document.getElementById('sf-controls-row').style.display = tab === 'sf' ? 'flex' : 'none';
+
+  // Gray out unit toggle on SF tab (streamflow is always ft³/s)
+  const unitToggle = document.querySelector('.unit-toggle');
+  unitToggle.style.opacity = tab === 'sf' ? '0.3' : '';
+  unitToggle.style.pointerEvents = tab === 'sf' ? 'none' : '';
+
+  // Show export button when the active tab has data
+  const exportBtn = document.getElementById('export-csv-btn');
+  if (tab === 'aorc') exportBtn.style.display = lastAORCData ? '' : 'none';
+  else if (tab === 'sf') exportBtn.style.display = lastSFData ? '' : 'none';
+  else exportBtn.style.display = 'none';
+
   setTimeout(() => {
     try { Plotly.relayout(`${tab}-chart`, {}); } catch (_) {}
   }, 30);
@@ -1290,7 +1306,6 @@ async function fetchAORC() {
     if (!resp.ok) { setStatus('aorc-status', data.detail || 'Server error', 'error'); return; }
     data._userVar = selectedVar;  // track original selection for unit conversion
     lastAORCData = data;
-    document.getElementById('export-csv-btn').style.display = '';
     setStatus('aorc-status', `Loaded ${data.n_times} hourly records.`, 'success');
     renderAORCChart(data);
     switchChartTab('aorc');
@@ -1313,6 +1328,7 @@ const COLOR_MAP = {
   'VGRD_10maboveground': '#f87171',  // red
 };
 let lastAORCData = null;
+let lastSFData = null;
 
 function renderAORCChart(data) {
   const disp = getDisplayData(data);
@@ -1365,6 +1381,25 @@ function renderStatsCard(data) {
   document.getElementById('stat-label4').textContent  = stats.extra2Label;
   document.getElementById('stat-extra2').textContent  = fmt(stats.extra2) + (stats.extra2Label === 'Range' || stats.extra2Label.startsWith('Total') ? ' ' + disp.units : '');
   card.classList.add('visible');
+}
+
+function exportCurrentCSV() {
+  const activeTab = ['aorc', 'lc', 'sf'].find(t => document.getElementById(`ctab-${t}`)?.classList.contains('active'));
+  if (activeTab === 'sf') exportSFCSV();
+  else exportAORCCSV();
+}
+
+function exportSFCSV() {
+  if (!lastSFData) return;
+  const { times, values, name, site_no } = lastSFData;
+  const rows = ['time,discharge (ft\u00b3/s)'];
+  times.forEach((t, i) => rows.push(`${t},${values[i] === null ? '' : values[i]}`));
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `streamflow_${site_no}_${times[0].slice(0, 10)}_to_${times[times.length - 1].slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function exportAORCCSV() {
