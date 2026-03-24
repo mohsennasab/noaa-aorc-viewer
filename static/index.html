@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NOAA AORC + NLCD Viewer</title>
+  <title>Hydrological Analysis and Watershed Kit</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -221,8 +221,117 @@
     .hint { font-size: 0.75rem; color: #475569; line-height: 1.4; }
 
     /* ---- Right panel ---- */
-    .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
     #map { flex: 1; min-height: 60px; }
+
+    /* ---- Floating map legend ---- */
+    #map-legend {
+      position: absolute;
+      top: 10px; right: 10px;
+      z-index: 1000;
+      background: rgba(22,25,35,0.97);
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      width: 260px;
+      font-size: 0.79rem;
+      color: #e2e8f0;
+      box-shadow: 0 4px 18px rgba(0,0,0,0.55);
+      overflow: hidden;
+      user-select: none;
+    }
+    .legend-header {
+      padding: 8px 12px;
+      background: #252836;
+      font-weight: 700;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #64748b;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #2d3148;
+      transition: color 0.15s;
+    }
+    .legend-header:hover { color: #94a3b8; }
+    .legend-body {
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: calc(100vh - 140px);
+      overflow-y: auto;
+    }
+    .legend-body.collapsed { display: none; }
+    .legend-group-title {
+      font-size: 0.64rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #475569;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 3px;
+      margin-bottom: 2px;
+    }
+    .legend-layer-row { display: flex; align-items: center; gap: 7px; }
+    .legend-layer-label { font-size: 0.78rem; color: #94a3b8; flex: 1; }
+    .legend-opacity-row {
+      display: flex; align-items: center; gap: 6px;
+      padding-left: 8px; margin-top: 2px;
+    }
+    .legend-opacity-row label { font-size: 0.68rem; color: #475569; white-space: nowrap; margin: 0; }
+    .legend-opacity-row input[type=range] { flex: 1; }
+    .legend-opacity-row span { font-size: 0.68rem; color: #475569; width: 30px; text-align: right; }
+    /* Unit system toggle */
+    .unit-toggle { display: flex; gap: 3px; align-items: center; }
+    .unit-btn {
+      padding: 2px 8px; font-size: 0.7rem; font-weight: 600;
+      border-radius: 3px; cursor: pointer;
+      border: 1px solid #334155; background: #1e293b; color: #64748b;
+      transition: all 0.15s; user-select: none;
+    }
+    .unit-btn.active { background: #1e3a5f; border-color: #3b82f6; color: #7dd3fc; }
+    .basemap-options { display: flex; gap: 4px; }
+    .basemap-btn {
+      flex: 1; padding: 4px 0;
+      font-size: 0.7rem; font-weight: 600;
+      text-align: center; border-radius: 4px;
+      cursor: pointer;
+      background: #0f1117; border: 1px solid #2d3148; color: #64748b;
+      transition: all 0.15s;
+    }
+    .basemap-btn.active { background: #1e3a5f; border-color: #3b82f6; color: #7dd3fc; }
+    .legend-select {
+      width: 100%; margin-top: 4px;
+      background: #0f1117; border: 1px solid #2d3148;
+      border-radius: 5px; color: #e2e8f0;
+      padding: 4px 7px; font-size: 0.74rem; outline: none;
+    }
+    .legend-select:focus { border-color: #7dd3fc; }
+
+    /* ---- Structures color legend ---- */
+    #structures-legend {
+      position: absolute;
+      bottom: 10px; right: 10px;
+      z-index: 1000;
+      background: rgba(22,25,35,0.95);
+      border: 1px solid #2d3148;
+      border-radius: 7px;
+      padding: 8px 11px;
+      font-size: 0.72rem; color: #94a3b8;
+      max-width: 190px;
+      display: none;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    }
+    #structures-legend.visible { display: block; }
+    .str-legend-title {
+      font-size: 0.63rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: #475569; margin-bottom: 6px;
+    }
+    .str-legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .str-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
     /* Resize handle */
     .resize-handle {
@@ -320,7 +429,7 @@
 <body>
 
 <header>
-  <h1>NOAA AORC + NLCD Viewer</h1>
+  <h1>Hydrological Analysis and Watershed Kit</h1>
   <span>Analyze hourly climate data and land cover distribution for any drawn AOI or USGS watershed</span>
 </header>
 
@@ -335,85 +444,6 @@
 
     <div class="sidebar-body">
 
-      <!-- MAP LAYERS -->
-      <div>
-        <div class="section-title">Map Layers</div>
-
-        <!-- Satellite basemap opacity -->
-        <div class="layer-row">
-          <span class="layer-label" style="font-weight:600;color:#e2e8f0">Satellite Basemap</span>
-        </div>
-        <div class="opacity-row">
-          <label>Opacity</label>
-          <input type="range" id="sat-opacity" min="0" max="100" value="100"
-                 oninput="updateSatOpacity(this.value)" />
-          <span class="opacity-val" id="sat-opacity-val">100%</span>
-        </div>
-
-        <div style="height:8px"></div>
-
-        <!-- NAIP toggle -->
-        <div class="layer-row">
-          <label class="toggle-switch">
-            <input type="checkbox" id="naip-toggle" onchange="toggleNAIP()" />
-            <span class="slider"></span>
-          </label>
-          <span class="layer-label">NAIP Imagery</span>
-        </div>
-        <div id="naip-controls" style="display:none">
-          <select id="naip-band" onchange="updateNAIPLayer()" style="margin-bottom:5px">
-            <option value="USGSNAIPPlus:NaturalColor">Natural Color (RGB)</option>
-            <option value="USGSNAIPPlus:FalseColorComposite">False Color (CIR)</option>
-            <option value="USGSNAIPPlus:NDVI_Color">NDVI Color</option>
-          </select>
-          <div class="opacity-row" style="margin-top:0">
-            <label>Opacity</label>
-            <input type="range" id="naip-opacity" min="10" max="100" value="90"
-                   oninput="updateNAIPOpacity(this.value)" />
-            <span class="opacity-val" id="naip-opacity-val">90%</span>
-          </div>
-        </div>
-
-        <div style="height:8px"></div>
-
-        <!-- NLCD overlay toggle -->
-        <div class="layer-row">
-          <label class="toggle-switch">
-            <input type="checkbox" id="nlcd-toggle" onchange="toggleNLCDLayer()" />
-            <span class="slider"></span>
-          </label>
-          <span class="layer-label">NLCD Land Cover</span>
-        </div>
-        <div id="nlcd-overlay-controls" style="display:none">
-          <div class="opacity-row" style="margin-top:0">
-            <label>Opacity</label>
-            <input type="range" id="nlcd-opacity" min="10" max="100" value="70"
-                   oninput="updateNLCDOpacity(this.value)" />
-            <span class="opacity-val" id="nlcd-opacity-val">70%</span>
-          </div>
-        </div>
-
-        <div style="height:8px"></div>
-
-        <!-- 3DEP Hillshade toggle -->
-        <div class="layer-row">
-          <label class="toggle-switch">
-            <input type="checkbox" id="hillshade-toggle" onchange="toggleHillshade()" />
-            <span class="slider"></span>
-          </label>
-          <span class="layer-label">3DEP Hillshade</span>
-        </div>
-        <div id="hillshade-controls" style="display:none">
-          <div class="opacity-row" style="margin-top:0">
-            <label>Opacity</label>
-            <input type="range" id="hillshade-opacity" min="10" max="100" value="60"
-                   oninput="updateHillshadeOpacity(this.value)" />
-            <span class="opacity-val" id="hillshade-opacity-val">60%</span>
-          </div>
-        </div>
-      </div>
-
-      <hr class="divider" />
 
       <!-- 1. AOI panel (Draw mode) -->
       <div id="panel-bbox">
@@ -457,7 +487,6 @@
         <select id="variable">
           <option value="APCP_surface">Precipitation (mm/hr)</option>
           <option value="TMP_2maboveground">Temperature (K)</option>
-          <option value="TMP_C">Temperature (°C)</option>
           <option value="SPFH_2maboveground">Specific Humidity (g/g)</option>
           <option value="DLWRF_surface">Downw. Longwave Radiation (W/m²)</option>
           <option value="DSWRF_surface">Downw. Shortwave Radiation (W/m²)</option>
@@ -514,10 +543,17 @@
         <div class="watershed-card" id="gauge-card" style="border-left-color:#22d3ee;display:none">
           <div class="wname" id="gauge-name"></div>
           <div class="wmeta" id="gauge-meta"></div>
+          <a id="gauge-usgs-link" href="#" target="_blank" rel="noopener"
+             style="display:none;font-size:0.72rem;color:#22d3ee;margin-top:5px;text-decoration:none;">
+            &#8599; View on USGS Water Data
+          </a>
         </div>
+        <div style="height:6px"></div>
+        <button class="btn btn-secondary" id="export-gauges-btn" style="display:none" onclick="exportGaugeList()">&#8595; Download Station List</button>
         <div class="spinner" id="gauge-spinner" style="border-top-color:#22d3ee"></div>
         <div class="status" id="gauge-status"></div>
       </div>
+
 
     </div>
   </div>
@@ -526,6 +562,90 @@
   <div class="right-panel">
     <div id="map"></div>
 
+    <!-- Floating Layer Legend -->
+    <div id="map-legend">
+      <div class="legend-header" onclick="toggleLegend()">
+        <span>&#9776; Layers</span>
+        <span id="legend-arrow">&#9660;</span>
+      </div>
+      <div class="legend-body" id="legend-body">
+
+        <!-- BASEMAP -->
+        <div>
+          <div class="legend-group-title">Basemap</div>
+          <div class="basemap-options">
+            <div class="basemap-btn active" id="bm-satellite" onclick="setBasemap('satellite')">Satellite</div>
+            <div class="basemap-btn" id="bm-osm" onclick="setBasemap('osm')">OSM</div>
+            <div class="basemap-btn" id="bm-none" onclick="setBasemap('none')">None</div>
+          </div>
+          <div class="legend-opacity-row" id="sat-opacity-row" style="padding-left:0;margin-top:6px">
+            <label>Opacity</label>
+            <input type="range" id="sat-opacity" min="0" max="100" value="100" oninput="updateSatOpacity(this.value)" />
+            <span id="sat-opacity-val">100%</span>
+          </div>
+        </div>
+
+        <!-- OVERLAYS -->
+        <div>
+          <div class="legend-group-title">Overlays</div>
+
+          <!-- Hydrography -->
+          <div class="legend-layer-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="hydro-toggle" onchange="toggleHydroLayer()" />
+              <span class="slider"></span>
+            </label>
+            <span class="legend-layer-label">Hydrography</span>
+          </div>
+          <div id="hydro-controls" style="display:none">
+            <div class="legend-opacity-row">
+              <label>Opacity</label>
+              <input type="range" id="hydro-opacity" min="10" max="100" value="80" oninput="updateHydroOpacity(this.value)" />
+              <span id="hydro-opacity-val">80%</span>
+            </div>
+          </div>
+
+          <div style="height:4px"></div>
+
+          <!-- Contours -->
+          <div class="legend-layer-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="contours-toggle" onchange="toggleContoursLayer()" />
+              <span class="slider"></span>
+            </label>
+            <span class="legend-layer-label">Contours <span style="color:#475569;font-size:0.67rem">(zoom ≥10)</span></span>
+          </div>
+          <div id="contours-controls" style="display:none">
+            <div class="legend-opacity-row">
+              <label>Opacity</label>
+              <input type="range" id="contours-opacity" min="10" max="100" value="70" oninput="updateContoursOpacity(this.value)" />
+              <span id="contours-opacity-val">70%</span>
+            </div>
+          </div>
+
+          <div style="height:4px"></div>
+
+          <!-- NLCD Land Cover -->
+          <div class="legend-layer-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="nlcd-toggle" onchange="toggleNLCDLayer()" />
+              <span class="slider"></span>
+            </label>
+            <span class="legend-layer-label">NLCD Land Cover <span style="color:#475569;font-size:0.67rem">(2021)</span></span>
+          </div>
+          <div id="nlcd-overlay-controls" style="display:none">
+            <div class="legend-opacity-row">
+              <label>Opacity</label>
+              <input type="range" id="nlcd-opacity" min="10" max="100" value="70" oninput="updateNLCDOpacity(this.value)" />
+              <span id="nlcd-opacity-val">70%</span>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
     <!-- Drag handle -->
     <div class="resize-handle" id="resize-handle"></div>
 
@@ -533,13 +653,31 @@
       <div class="chart-tabs">
         <div class="chart-tab active" id="ctab-aorc" onclick="switchChartTab('aorc')">AORC Time Series</div>
         <div class="chart-tab"        id="ctab-lc"   onclick="switchChartTab('lc')">Land Cover</div>
-        <div class="chart-tab"        id="ctab-sf"   onclick="switchChartTab('sf')" style="display:none">Streamflow</div>
-        <button id="export-csv-btn" onclick="exportAORCCSV()"
-                style="display:none;margin-left:auto;padding:3px 10px;font-size:0.75rem;border-radius:4px;
-                       border:1px solid #334155;background:#1e293b;color:#94a3b8;cursor:pointer;">
-          Export CSV
-        </button>
+        <div class="chart-tab" id="ctab-sf" onclick="switchChartTab('sf')" style="display:none">Streamflow</div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;padding-right:4px">
+          <div class="unit-toggle">
+            <span class="unit-btn active" id="unit-si" onclick="setUnitSystem('si')">SI</span>
+            <span class="unit-btn"        id="unit-us" onclick="setUnitSystem('us')">US</span>
+          </div>
+          <button id="export-csv-btn" onclick="exportAORCCSV()"
+                  style="display:none;padding:3px 10px;font-size:0.75rem;border-radius:4px;
+                         border:1px solid #334155;background:#1e293b;color:#94a3b8;cursor:pointer;">
+            Export CSV
+          </button>
+        </div>
       </div>
+      <!-- Streamflow date controls — shown only when sf tab is active -->
+      <div id="sf-controls-row" style="display:none;flex-shrink:0;padding:5px 10px;border-bottom:1px solid #1e293b;align-items:center;gap:8px;background:#1a1d27">
+        <span style="font-size:0.74rem;color:#64748b;white-space:nowrap">From</span>
+        <input type="date" id="sf-start-date"
+               style="max-width:130px;background:#0f1117;border:1px solid #2d3148;border-radius:4px;color:#e2e8f0;padding:3px 6px;font-size:0.75rem;outline:none"/>
+        <span style="font-size:0.74rem;color:#64748b;white-space:nowrap">To</span>
+        <input type="date" id="sf-end-date"
+               style="max-width:130px;background:#0f1117;border:1px solid #2d3148;border-radius:4px;color:#e2e8f0;padding:3px 6px;font-size:0.75rem;outline:none"/>
+        <button onclick="refetchStreamflow()"
+                style="padding:3px 10px;font-size:0.74rem;border-radius:4px;border:1px solid #0284c7;background:#0c2a3d;color:#7dd3fc;cursor:pointer;white-space:nowrap">Plot</button>
+      </div>
+
       <div class="chart-content active" id="ccontent-aorc">
         <div id="aorc-chart"></div>
         <div class="chart-placeholder" id="aorc-placeholder">Fetch climate data to see the time series</div>
@@ -576,11 +714,37 @@ const satLayer = L.tileLayer(
   { attribution: 'Imagery &copy; Esri, USGS, NOAA', maxZoom: 19, opacity: 1 }
 ).addTo(map);
 
-// Transparent labels on top of satellite
-L.tileLayer(
+const labelsLayer = L.tileLayer(
   'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
   { attribution: '', maxZoom: 19, opacity: 1, pane: 'overlayPane' }
 ).addTo(map);
+
+const osmLayer = L.tileLayer(
+  'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }
+);
+
+let currentBasemap = 'satellite';
+
+function setBasemap(type) {
+  document.querySelectorAll('.basemap-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('bm-' + type).classList.add('active');
+  if (map.hasLayer(satLayer))  map.removeLayer(satLayer);
+  if (map.hasLayer(osmLayer))  map.removeLayer(osmLayer);
+  if (map.hasLayer(labelsLayer)) map.removeLayer(labelsLayer);
+  const opRow = document.getElementById('sat-opacity-row');
+  if (type === 'satellite') {
+    satLayer.addTo(map); satLayer.bringToBack();
+    labelsLayer.addTo(map);
+    opRow.style.display = '';
+  } else if (type === 'osm') {
+    osmLayer.addTo(map); osmLayer.bringToBack();
+    opRow.style.display = 'none';
+  } else {
+    opRow.style.display = 'none';
+  }
+  currentBasemap = type;
+}
 
 function updateSatOpacity(val) {
   document.getElementById('sat-opacity-val').textContent = val + '%';
@@ -588,45 +752,20 @@ function updateSatOpacity(val) {
 }
 
 // ============================================================
-// NAIP LAYER
+// LEGEND PANEL
 // ============================================================
-const NAIP_WMS = 'https://imagery.nationalmap.gov/arcgis/services/USGSNAIPPlus/ImageServer/WMSServer';
-let naipLayer = null;
-
-function buildNAIPLayer() {
-  return L.tileLayer.wms(NAIP_WMS, {
-    layers: document.getElementById('naip-band').value,
-    format: 'image/png',
-    transparent: true,
-    opacity: parseFloat(document.getElementById('naip-opacity').value) / 100,
-    version: '1.3.0',
-    attribution: 'USGS NAIP Imagery',
-  });
+function toggleLegend() {
+  const body = document.getElementById('legend-body');
+  const arrow = document.getElementById('legend-arrow');
+  const isCollapsed = body.classList.toggle('collapsed');
+  arrow.innerHTML = isCollapsed ? '&#9654;' : '&#9660;';
 }
 
-function toggleNAIP() {
-  const on = document.getElementById('naip-toggle').checked;
-  document.getElementById('naip-controls').style.display = on ? '' : 'none';
-  if (on) {
-    naipLayer = buildNAIPLayer();
-    naipLayer.addTo(map);
-  } else {
-    if (naipLayer) { map.removeLayer(naipLayer); naipLayer = null; }
-  }
-}
-
-function updateNAIPLayer() {
-  if (naipLayer) {
-    map.removeLayer(naipLayer);
-    naipLayer = buildNAIPLayer();
-    naipLayer.addTo(map);
-  }
-}
-
-function updateNAIPOpacity(val) {
-  document.getElementById('naip-opacity-val').textContent = val + '%';
-  if (naipLayer) naipLayer.setOpacity(val / 100);
-}
+// Prevent map panning / zooming when interacting with legend
+const legendEl = document.getElementById('map-legend');
+legendEl.addEventListener('mouseenter', () => { map.dragging.disable(); map.scrollWheelZoom.disable(); });
+legendEl.addEventListener('mouseleave', () => { map.dragging.enable();  map.scrollWheelZoom.enable();  });
+legendEl.addEventListener('wheel', e => e.stopPropagation());
 
 // ============================================================
 // NLCD WMS OVERLAY
@@ -648,8 +787,7 @@ function toggleNLCDLayer() {
   const on = document.getElementById('nlcd-toggle').checked;
   document.getElementById('nlcd-overlay-controls').style.display = on ? '' : 'none';
   if (on) {
-    const year = document.getElementById('nlcd-year').value;
-    nlcdLayer = buildNLCDLayer(year);
+    nlcdLayer = buildNLCDLayer('2021');
     nlcdLayer.addTo(map);
   } else {
     if (nlcdLayer) { map.removeLayer(nlcdLayer); nlcdLayer = null; }
@@ -661,49 +799,120 @@ function updateNLCDOpacity(val) {
   if (nlcdLayer) nlcdLayer.setOpacity(val / 100);
 }
 
-// Sync NLCD overlay when year changes
-function syncNLCDYear() {
-  if (nlcdLayer) {
-    map.removeLayer(nlcdLayer);
-    nlcdLayer = buildNLCDLayer(document.getElementById('nlcd-year').value);
-    nlcdLayer.addTo(map);
-  }
-}
+function syncNLCDYear() { /* year change only affects analysis, not the map overlay */ }
 
 // ============================================================
-// 3DEP HILLSHADE OVERLAY
+// HYDROGRAPHY WMS OVERLAY
 // ============================================================
-let hillshadeLayer = null;
+const HYDRO_WMS = 'https://basemap.nationalmap.gov/arcgis/services/USGSHydroCached/MapServer/WMSServer';
+let hydroLayer = null;
 
-function buildHillshadeLayer() {
-  return L.tileLayer.wms(
-    'https://elevation.nationalmap.gov/arcgis/services/3DEPElevation/ImageServer/WMSServer',
-    {
-      layers: '3DEPElevation:Hillshade Gray',
-      format: 'image/png',
-      transparent: true,
-      attribution: 'USGS 3DEP',
-      opacity: document.getElementById('hillshade-opacity').value / 100,
-      pane: 'overlayPane',
-    }
-  );
+function buildHydroLayer() {
+  return L.tileLayer.wms(HYDRO_WMS, {
+    layers: '0',
+    format: 'image/png',
+    transparent: true,
+    opacity: parseFloat(document.getElementById('hydro-opacity').value) / 100,
+    version: '1.3.0',
+    attribution: 'USGS National Hydrography',
+    pane: 'overlayPane',
+  });
 }
 
-function toggleHillshade() {
-  const on = document.getElementById('hillshade-toggle').checked;
-  document.getElementById('hillshade-controls').style.display = on ? '' : 'none';
+function toggleHydroLayer() {
+  const on = document.getElementById('hydro-toggle').checked;
+  document.getElementById('hydro-controls').style.display = on ? '' : 'none';
   if (on) {
-    hillshadeLayer = buildHillshadeLayer();
-    hillshadeLayer.addTo(map);
+    hydroLayer = buildHydroLayer();
+    hydroLayer.addTo(map);
   } else {
-    if (hillshadeLayer) { map.removeLayer(hillshadeLayer); hillshadeLayer = null; }
+    if (hydroLayer) { map.removeLayer(hydroLayer); hydroLayer = null; }
   }
 }
 
-function updateHillshadeOpacity(val) {
-  document.getElementById('hillshade-opacity-val').textContent = val + '%';
-  if (hillshadeLayer) hillshadeLayer.setOpacity(val / 100);
+function updateHydroOpacity(val) {
+  document.getElementById('hydro-opacity-val').textContent = val + '%';
+  if (hydroLayer) hydroLayer.setOpacity(val / 100);
 }
+
+// ============================================================
+// CONTOURS WMS OVERLAY
+// ============================================================
+const CONTOURS_WMS = 'https://carto.nationalmap.gov/arcgis/services/contours/MapServer/WMSServer';
+let contoursLayer = null;
+
+function buildContoursLayer() {
+  return L.tileLayer.wms(CONTOURS_WMS, {
+    layers: '0',
+    format: 'image/png',
+    transparent: true,
+    opacity: parseFloat(document.getElementById('contours-opacity').value) / 100,
+    version: '1.3.0',
+    attribution: 'USGS Contours',
+    pane: 'overlayPane',
+  });
+}
+
+function toggleContoursLayer() {
+  const on = document.getElementById('contours-toggle').checked;
+  document.getElementById('contours-controls').style.display = on ? '' : 'none';
+  if (on) {
+    contoursLayer = buildContoursLayer();
+    contoursLayer.addTo(map);
+  } else {
+    if (contoursLayer) { map.removeLayer(contoursLayer); contoursLayer = null; }
+  }
+}
+
+function updateContoursOpacity(val) {
+  document.getElementById('contours-opacity-val').textContent = val + '%';
+  if (contoursLayer) contoursLayer.setOpacity(val / 100);
+}
+
+// ============================================================
+// UNIT SYSTEM
+// ============================================================
+let unitSystem = 'si';
+
+function setUnitSystem(sys) {
+  unitSystem = sys;
+  document.getElementById('unit-si').classList.toggle('active', sys === 'si');
+  document.getElementById('unit-us').classList.toggle('active', sys === 'us');
+  if (lastAORCData) { renderAORCChart(lastAORCData); renderStatsCard(lastAORCData); }
+}
+
+function getDisplayData(data) {
+  const v = data._userVar || data.variable;
+  const vals = data.values;
+  const r2 = x => Math.round(x * 100) / 100;
+  if (v === 'TMP_C') {
+    // stored as °C
+    if (unitSystem === 'us') return { values: vals.map(x => x == null ? null : r2(x * 9/5 + 32)), label: 'Temperature', units: '°F' };
+    return { values: vals, label: 'Temperature', units: '°C' };
+  }
+  if (v === 'TMP_2maboveground') {
+    // stored as K
+    if (unitSystem === 'us') return { values: vals.map(x => x == null ? null : r2((x - 273.15) * 9/5 + 32)), label: 'Temperature', units: '°F' };
+    return { values: vals.map(x => x == null ? null : r2(x - 273.15)), label: 'Temperature', units: '°C' };
+  }
+  if (v === 'APCP_surface') {
+    if (unitSystem === 'us') return { values: vals.map(x => x == null ? null : r2(x / 25.4)), label: 'Precipitation', units: 'in/hr' };
+    return { values: vals, label: 'Precipitation', units: 'mm/hr' };
+  }
+  if (v === 'PRES_surface') {
+    if (unitSystem === 'us') return { values: vals.map(x => x == null ? null : r2(x / 3386.39)), label: 'Surface Pressure', units: 'inHg' };
+    return { values: vals.map(x => x == null ? null : r2(x / 100)), label: 'Surface Pressure', units: 'hPa' };
+  }
+  if (v === 'UGRD_10maboveground' || v === 'VGRD_10maboveground') {
+    if (unitSystem === 'us') return { values: vals.map(x => x == null ? null : r2(x * 2.23694)), label: data.label, units: 'mph' };
+    return { values: vals, label: data.label, units: 'm/s' };
+  }
+  // SPFH, radiation: no practical US customary equivalent
+  return { values: vals, label: data.label, units: data.units };
+}
+
+function loadStructures() {}
+function clearStructures() {}
 
 // ============================================================
 // DRAW CONTROL
@@ -730,6 +939,7 @@ map.on(L.Draw.Event.CREATED, function (e) {
   updateBboxDisplay();
   updateButtons();
   loadGauges(currentBbox);
+  loadStructures(currentBbox);
 });
 map.on(L.Draw.Event.DELETED, function () {
   if (!drawnItems.getLayers().length) clearBboxAOI();
@@ -741,6 +951,7 @@ function clearBboxAOI() {
   updateBboxDisplay();
   updateButtons();
   clearGauges();
+  clearStructures();
 }
 
 function updateBboxDisplay() {
@@ -834,7 +1045,9 @@ async function selectWatershed(latlng) {
     updateButtons();
     clearStatus('aorc-status');
     const wb = watershedLayer.getBounds();
-    loadGauges({ min_lon: wb.getWest(), min_lat: wb.getSouth(), max_lon: wb.getEast(), max_lat: wb.getNorth() });
+    const wsBbox = { min_lon: wb.getWest(), min_lat: wb.getSouth(), max_lon: wb.getEast(), max_lat: wb.getNorth() };
+    loadGauges(wsBbox);
+    loadStructures(wsBbox);
   } catch (err) {
     setStatus('aorc-status', 'USGS query failed: ' + err.message, 'error');
     document.getElementById('ws-hint').classList.add('visible');
@@ -850,6 +1063,7 @@ function clearWatershed() {
   document.getElementById('ws-hint').classList.add('visible');
   updateButtons();
   clearGauges();
+  clearStructures();
 }
 
 // ============================================================
@@ -857,6 +1071,7 @@ function clearWatershed() {
 // ============================================================
 let gaugeLayerGroup = null;
 let selectedGaugeSiteNo = null;
+let currentGauges = [];
 
 async function loadGauges(bbox) {
   const area = (bbox.max_lon - bbox.min_lon) * (bbox.max_lat - bbox.min_lat);
@@ -876,6 +1091,8 @@ async function loadGauges(bbox) {
     const gauges = await resp.json();
     if (!resp.ok) { setStatus('gauge-status', gauges.detail || 'Gauge query failed.', 'error'); return; }
     if (!gauges.length) { setStatus('gauge-status', 'No active gauges found in AOI.', 'info'); return; }
+    currentGauges = gauges;
+    document.getElementById('export-gauges-btn').style.display = '';
     gaugeLayerGroup = L.layerGroup().addTo(map);
     gauges.forEach(g => {
       if (g.lat == null || g.lon == null) return;
@@ -898,7 +1115,9 @@ async function loadGauges(bbox) {
 function clearGauges() {
   if (gaugeLayerGroup) { map.removeLayer(gaugeLayerGroup); gaugeLayerGroup = null; }
   selectedGaugeSiteNo = null;
+  currentGauges = [];
   document.getElementById('gauge-card').style.display = 'none';
+  document.getElementById('export-gauges-btn').style.display = 'none';
   clearStatus('gauge-status');
   document.getElementById('ctab-sf').style.display = 'none';
 }
@@ -910,14 +1129,21 @@ async function onGaugeClick(g) {
   document.getElementById('gauge-meta').innerHTML =
     `<span>Site:</span> ${g.site_no}<br><span>Flow:</span> ${flow}` +
     (g.obs_time ? `<br><span>As of:</span> ${g.obs_time}` : '');
+  const usgsLink = document.getElementById('gauge-usgs-link');
+  usgsLink.href = `https://waterdata.usgs.gov/monitoring-location/${g.site_no}/`;
+  usgsLink.style.display = 'block';
   document.getElementById('gauge-card').style.display = '';
 
-  const startDate = document.getElementById('start-date').value;
-  const endDate   = document.getElementById('end-date').value;
-  if (!startDate || !endDate) return;
+  // Always start with last 7 days; pre-fill date pickers
+  const endDt  = new Date();
+  const startDt = new Date(); startDt.setDate(endDt.getDate() - 7);
+  const toISO = d => d.toISOString().split('T')[0];
+  const endDate = toISO(endDt), startDate = toISO(startDt);
+  document.getElementById('sf-start-date').value = startDate;
+  document.getElementById('sf-end-date').value   = endDate;
 
   document.getElementById('gauge-spinner').style.display = 'block';
-  setStatus('gauge-status', 'Fetching discharge time series…', 'info');
+  setStatus('gauge-status', 'Fetching last 7 days of discharge…', 'info');
   try {
     const resp = await fetch('/api/gauge_timeseries', {
       method: 'POST',
@@ -1026,8 +1252,9 @@ function switchChartTab(tab) {
     if (tabEl) tabEl.classList.toggle('active', t === tab);
     if (contentEl) contentEl.classList.toggle('active', t === tab);
   });
+  document.getElementById('sf-controls-row').style.display = tab === 'sf' ? 'flex' : 'none';
   setTimeout(() => {
-    try { Plotly.relayout(tab === 'aorc' ? 'aorc-chart' : tab === 'lc' ? 'lc-chart' : 'sf-chart', {}); } catch (_) {}
+    try { Plotly.relayout(`${tab}-chart`, {}); } catch (_) {}
   }, 30);
 }
 
@@ -1061,11 +1288,7 @@ async function fetchAORC() {
     });
     const data = await resp.json();
     if (!resp.ok) { setStatus('aorc-status', data.detail || 'Server error', 'error'); return; }
-    if (isCelsius) {
-      data.values = data.values.map(v => v === null ? null : Math.round((v - 273.15) * 100) / 100);
-      data.label = 'Temperature';
-      data.units = '°C';
-    }
+    data._userVar = selectedVar;  // track original selection for unit conversion
     lastAORCData = data;
     document.getElementById('export-csv-btn').style.display = '';
     setStatus('aorc-status', `Loaded ${data.n_times} hourly records.`, 'success');
@@ -1092,57 +1315,63 @@ const COLOR_MAP = {
 let lastAORCData = null;
 
 function renderAORCChart(data) {
+  const disp = getDisplayData(data);
   document.getElementById('aorc-placeholder').style.display = 'none';
   const color = COLOR_MAP[data.variable] || '#60a5fa';
   Plotly.react('aorc-chart', [{
-    x: data.times, y: data.values,
-    type: 'scatter', mode: 'lines', name: data.label,
+    x: data.times, y: disp.values,
+    type: 'scatter', mode: 'lines', name: disp.label,
     line: { color, width: 1.5 },
     fill: 'tozeroy', fillcolor: color + '22',
   }], {
     paper_bgcolor: '#1a1d27', plot_bgcolor: '#0f1117',
     font: { color: '#94a3b8', size: 11 },
     margin: { t: 28, r: 18, b: 46, l: 56 },
-    title: { text: `Spatial Mean — ${data.label} (${data.units})`, font: { color: '#e2e8f0', size: 12 }, x: 0.01 },
+    title: { text: `Spatial Mean — ${disp.label} (${disp.units})`, font: { color: '#e2e8f0', size: 12 }, x: 0.01 },
     xaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: 'Time (UTC)', standoff: 6 } },
-    yaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: `${data.label} (${data.units})`, standoff: 6 } },
+    yaxis: { gridcolor: '#1e293b', linecolor: '#334155', title: { text: `${disp.label} (${disp.units})`, standoff: 6 } },
     hovermode: 'x unified',
   }, { responsive: true, displayModeBar: true, displaylogo: false, modeBarButtonsToRemove: ['select2d', 'lasso2d'] });
   renderStatsCard(data);
 }
 
 function computeStats(data) {
-  const vals = data.values.filter(v => v !== null);
+  const disp = getDisplayData(data);
+  const vals = disp.values.filter(v => v !== null);
   if (!vals.length) return null;
   const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
   const min = Math.min(...vals);
   const max = Math.max(...vals);
-  const isPrec = data.variable === 'APCP_surface';
+  const isPrec = (data._userVar || data.variable) === 'APCP_surface';
   if (isPrec) {
     const total = vals.reduce((a, b) => a + b, 0);
     const dryPct = vals.filter(v => v === 0).length / vals.length * 100;
-    return { mean, max, extra1Label: 'Total (mm)', extra1: total, extra2Label: 'Dry Hours', extra2: dryPct.toFixed(1) + '%' };
+    const totalLabel = unitSystem === 'us' ? 'Total (in)' : 'Total (mm)';
+    return { mean, max, extra1Label: totalLabel, extra1: total, extra2Label: 'Dry Hours', extra2: dryPct.toFixed(1) + '%' };
   }
   return { mean, max, extra1Label: 'Min', extra1: min, extra2Label: 'Range', extra2: max - min };
 }
 
 function renderStatsCard(data) {
+  const disp = getDisplayData(data);
   const stats = computeStats(data);
   const card = document.getElementById('stats-card');
   if (!stats) { card.classList.remove('visible'); return; }
   const fmt = v => typeof v === 'number' ? (Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3)) : v;
-  document.getElementById('stat-mean').textContent   = fmt(stats.mean)   + ' ' + data.units;
-  document.getElementById('stat-max').textContent    = fmt(stats.max)    + ' ' + data.units;
+  document.getElementById('stat-mean').textContent   = fmt(stats.mean)   + ' ' + disp.units;
+  document.getElementById('stat-max').textContent    = fmt(stats.max)    + ' ' + disp.units;
   document.getElementById('stat-label3').textContent  = stats.extra1Label;
-  document.getElementById('stat-extra1').textContent  = fmt(stats.extra1) + (stats.extra1Label === 'Dry Hours' ? '' : ' ' + data.units);
+  document.getElementById('stat-extra1').textContent  = fmt(stats.extra1) + (stats.extra1Label === 'Dry Hours' ? '' : ' ' + disp.units);
   document.getElementById('stat-label4').textContent  = stats.extra2Label;
-  document.getElementById('stat-extra2').textContent  = fmt(stats.extra2) + (stats.extra2Label === 'Range' || stats.extra2Label === 'Total (mm)' ? ' ' + data.units : '');
+  document.getElementById('stat-extra2').textContent  = fmt(stats.extra2) + (stats.extra2Label === 'Range' || stats.extra2Label.startsWith('Total') ? ' ' + disp.units : '');
   card.classList.add('visible');
 }
 
 function exportAORCCSV() {
   if (!lastAORCData) return;
-  const { times, values, variable, label, units } = lastAORCData;
+  const disp = getDisplayData(lastAORCData);
+  const { times, variable } = lastAORCData;
+  const { values, label, units } = disp;
   const rows = ['time,' + label + ' (' + units + ')'];
   times.forEach((t, i) => rows.push(`${t},${values[i] === null ? '' : values[i]}`));
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
@@ -1188,6 +1417,44 @@ async function fetchLandCover() {
     document.getElementById('lc-spinner').style.display = 'none';
     updateButtons();
   }
+}
+
+async function refetchStreamflow() {
+  if (!selectedGaugeSiteNo) return;
+  const startDate = document.getElementById('sf-start-date').value;
+  const endDate   = document.getElementById('sf-end-date').value;
+  if (!startDate || !endDate) return;
+  document.getElementById('gauge-spinner').style.display = 'block';
+  setStatus('gauge-status', 'Fetching discharge…', 'info');
+  try {
+    const resp = await fetch('/api/gauge_timeseries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ site_no: selectedGaugeSiteNo, start_date: startDate, end_date: endDate }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { setStatus('gauge-status', data.detail || 'Timeseries fetch failed.', 'error'); return; }
+    clearStatus('gauge-status');
+    renderStreamflowChart(data);
+  } catch (err) {
+    setStatus('gauge-status', 'Gauge timeseries error: ' + err.message, 'error');
+  } finally {
+    document.getElementById('gauge-spinner').style.display = 'none';
+  }
+}
+
+function exportGaugeList() {
+  if (!currentGauges.length) return;
+  const rows = ['site_no,name,lat,lon,flow_cfs,obs_time'];
+  currentGauges.forEach(g => {
+    rows.push([g.site_no, `"${g.name}"`, g.lat, g.lon, g.flow_cfs ?? '', g.obs_time ?? ''].join(','));
+  });
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'usgs_gauges.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function renderLandCoverChart(data) {
