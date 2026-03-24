@@ -19,7 +19,8 @@ from shapely.geometry import mapping, shape
 # AORC dataset config
 # ---------------------------------------------------------------------------
 BUCKET = "noaa-nws-aorc-v1-1-1km"
-MAX_DAYS = 180
+MAX_DAYS_AORC = 365
+MAX_DAYS_SF   = 3650   # 10 years
 VARIABLE_META = {
     "APCP_surface":        {"label": "Precipitation",              "units": "mm/hr"},
     "TMP_2maboveground":   {"label": "Temperature",                "units": "K"},
@@ -145,8 +146,8 @@ async def query(req: QueryRequest):
 
     if t1 <= t0:
         raise HTTPException(400, "end_date must be after start_date.")
-    if (t1 - t0).days > MAX_DAYS:
-        raise HTTPException(400, f"Date range cannot exceed {MAX_DAYS} days.")
+    if (t1 - t0).days > MAX_DAYS_AORC:
+        raise HTTPException(400, f"Date range cannot exceed {MAX_DAYS_AORC} days (1 year).")
 
     years = list(range(t0.year, t1.year + 1))
 
@@ -365,8 +366,8 @@ async def gauge_timeseries(req: GaugeTimeseriesRequest):
         t1 = pd.Timestamp(req.end_date)
     except Exception:
         raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD.")
-    if (t1 - t0).days > MAX_DAYS:
-        raise HTTPException(400, f"Date range cannot exceed {MAX_DAYS} days.")
+    if (t1 - t0).days > MAX_DAYS_SF:
+        raise HTTPException(400, f"Date range cannot exceed {MAX_DAYS_SF} days (10 years).")
 
     loop = asyncio.get_event_loop()
 

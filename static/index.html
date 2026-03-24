@@ -501,7 +501,7 @@
         <label for="end-date">End date</label>
         <input type="date" id="end-date" value="2020-07-07" min="1979-01-01" max="2025-12-31" />
         <div style="height:5px"></div>
-        <p class="hint">Max 180 days · hourly data · 1979–2025</p>
+        <p class="hint">Max 1 year · hourly data · 1979–2025</p>
         <div style="height:8px"></div>
         <button class="btn btn-primary" id="fetch-btn" onclick="fetchAORC()" disabled>Fetch Climate Data</button>
         <div style="height:8px"></div>
@@ -1257,6 +1257,11 @@ function switchChartTab(tab) {
     if (contentEl) contentEl.classList.toggle('active', t === tab);
   });
   document.getElementById('sf-controls-row').style.display = tab === 'sf' ? 'flex' : 'none';
+
+  // Stats card only relevant for AORC tab
+  const statsCard = document.getElementById('stats-card');
+  if (tab !== 'aorc') statsCard.classList.remove('visible');
+  else if (lastAORCData) renderStatsCard(lastAORCData);
 
   // Gray out unit toggle on SF tab (streamflow is always ft³/s)
   const unitToggle = document.querySelector('.unit-toggle');
