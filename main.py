@@ -1,14 +1,24 @@
 import asyncio
+import io
+import os
+import tempfile
+import zipfile
 from typing import Literal
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
 import requests as http_requests
 import s3fs
 import shapely
 import xarray as xr
+from shapely import from_wkb
+from shapely.geometry import box as shapely_box
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 from rasterio.io import MemoryFile
@@ -410,3 +420,334 @@ async def gauge_timeseries(req: GaugeTimeseriesRequest):
         raise HTTPException(500, f"Gauge timeseries error: {e}")
 
     return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# Overture Maps Buildings Analysis
+# ---------------------------------------------------------------------------
+
+OVERTURE_BUCKET       = "overturemaps-us-west-2"
+BUILDINGS_QUERY_LIMIT = 100_000  # max rows fetched from S3
+BUILDINGS_MAP_LIMIT   = 10_000   # max GeoJSON features sent to browser
+
+# Cache the discovered release path so we only list S3 once per server lifetime.
+_overture_buildings_path: str | None = None
+
+
+def _get_overture_buildings_path() -> str:
+    """
+    Return the S3 path for the latest available Overture buildings dataset.
+    Discovers the most-recent release by listing the bucket, then caches it.
+    Falls back to a known-good release if the listing fails.
+    """
+    global _overture_buildings_path
+    if _overture_buildings_path:
+        return _overture_buildings_path
+
+    FALLBACK = (
+        f"{OVERTURE_BUCKET}/release/2024-07-22.0"
+        "/theme=buildings/type=building/"
+    )
+    try:
+        fs = s3fs.S3FileSystem(anon=True)
+        entries = fs.ls(f"{OVERTURE_BUCKET}/release/", detail=False)
+        # entries look like "overturemaps-us-west-2/release/2024-07-22.0"
+        releases = sorted(
+            e for e in entries
+            if "/release/" in e and not e.endswith("/release/")
+        )
+        if releases:
+            latest = releases[-1].rstrip("/")
+            path = f"{latest}/theme=buildings/type=building/"
+            _overture_buildings_path = path
+            return path
+    except Exception:
+        pass
+
+    _overture_buildings_path = FALLBACK
+    return FALLBACK
+
+# Color scheme for building classes (returned to the browser)
+CLASS_COLORS: dict[str, str] = {
+    "residential":    "#f97316",
+    "commercial":     "#3b82f6",
+    "industrial":     "#8b5cf6",
+    "civic":          "#22c55e",
+    "education":      "#eab308",
+    "transportation": "#64748b",
+    "agricultural":   "#84cc16",
+    "medical":        "#ef4444",
+    "religious":      "#f472b6",
+    "entertainment":  "#22d3ee",
+}
+CLASS_COLOR_DEFAULT = "#94a3b8"
+
+
+class BuildingsRequest(AOIRequest):
+    class_filter: str | None = None   # e.g. "residential"; None = all classes
+
+
+# ── helpers ────────────────────────────────────────────────────────────────
+
+def _histogram(series, bins: int = 20) -> dict:
+    """Return a Plotly-ready histogram dict {edges, counts}."""
+    arr = series.dropna().astype(float).values
+    if len(arr) == 0:
+        return {"edges": [], "counts": []}
+    counts, edges = np.histogram(arr, bins=bins)
+    return {
+        "edges":  [round(float(e), 2) for e in edges],
+        "counts": counts.tolist(),
+    }
+
+
+def _height_histogram(series) -> dict:
+    """
+    Height-specific histogram with:
+    - p99 clipping so a handful of skyscrapers don't squash the distribution
+    - Nice round bin widths (0.5 / 1 / 2 / 3 / 5 / 10 / 20 / 25 / 50 m)
+      targeting ~15-20 bins, aligned to zero
+    Returns edges, counts, bin_width, and the p99 clip value.
+    """
+    h = series.dropna().astype(float)
+    if len(h) == 0:
+        return {"edges": [], "counts": [], "bin_width": 0, "p99": 0}
+
+    p99       = float(h.quantile(0.99))
+    h_clipped = h.clip(upper=p99)
+    data_max  = float(h_clipped.max())
+
+    # Choose the smallest "nice" width that keeps ~15-20 bins
+    raw_width  = data_max / 18
+    nice_steps = [0.5, 1, 2, 3, 5, 10, 15, 20, 25, 50, 100]
+    bin_width  = next((w for w in nice_steps if w >= raw_width), 100)
+
+    n_bins = max(5, int(np.ceil(data_max / bin_width)))
+    edges  = np.arange(0, (n_bins + 1) * bin_width, bin_width)
+    counts, edges = np.histogram(h_clipped, bins=edges)
+
+    return {
+        "edges":     [round(float(e), 2) for e in edges],
+        "counts":    counts.tolist(),
+        "bin_width": bin_width,
+        "p99":       round(p99, 1),
+    }
+
+
+def _load_buildings(polygon, min_lon, min_lat, max_lon, max_lat, class_filter=None):
+    """
+    Load Overture Maps buildings for the given bbox from S3.
+    Returns (GeoDataFrame, truncated_flag).
+    """
+    path = _get_overture_buildings_path()
+    # Use s3fs (already a project dependency) for authenticated-anonymous S3 access
+    fs = s3fs.S3FileSystem(anon=True)
+    dataset = ds.dataset(path, filesystem=fs, format="parquet")
+
+    # Pushdown bbox filter using Overture's nested bbox struct columns
+    filt = (
+        (pc.field(("bbox", "xmin")) <= max_lon) &
+        (pc.field(("bbox", "xmax")) >= min_lon) &
+        (pc.field(("bbox", "ymin")) <= max_lat) &
+        (pc.field(("bbox", "ymax")) >= min_lat)
+    )
+    if class_filter:
+        filt = filt & (pc.field("class") == class_filter)
+
+    # Only read columns that actually exist in this release's schema
+    wanted   = ["id", "geometry", "bbox", "height", "num_floors",
+                 "class", "has_parts", "sources"]
+    existing = {f.name for f in dataset.schema}
+    columns  = [c for c in wanted if c in existing]
+
+    table = dataset.to_table(filter=filt, columns=columns)
+
+    if len(table) == 0:
+        raise HTTPException(404, "No buildings found in the selected AOI.")
+
+    truncated = len(table) > BUILDINGS_QUERY_LIMIT
+    if truncated:
+        table = table.slice(0, BUILDINGS_QUERY_LIMIT)
+
+    # WKB binary → Shapely geometries
+    df    = table.to_pandas()
+    geoms = from_wkb(df["geometry"].values)
+    gdf   = gpd.GeoDataFrame(
+        df.drop(columns=["geometry"]), geometry=geoms, crs="EPSG:4326"
+    )
+
+    # Clip precisely to polygon boundary when one is provided
+    if polygon is not None:
+        gdf = gdf[gdf.geometry.intersects(polygon)].copy()
+        if len(gdf) == 0:
+            raise HTTPException(
+                404, "No buildings found within the selected boundary."
+            )
+
+    # Rename 'class' to avoid Python reserved-keyword confusion downstream
+    if "class" in gdf.columns:
+        gdf.rename(columns={"class": "bld_class"}, inplace=True)
+
+    # ── derived fields ──────────────────────────────────────────────────
+    projected       = gdf.geometry.to_crs("EPSG:3857")
+    gdf["area_m2"]  = projected.area
+    gdf["area_ft2"] = gdf["area_m2"] * 10.7639
+    # Compute centroids in projected CRS, then back to WGS-84 lon/lat
+    centroids       = projected.centroid.to_crs("EPSG:4326")
+    gdf["ctr_lon"]  = centroids.x
+    gdf["ctr_lat"]  = centroids.y
+
+    return gdf, truncated
+
+
+def _build_stats(gdf, truncated, min_lon, min_lat, max_lon, max_lat, polygon) -> dict:
+    """Compute summary statistics from a buildings GeoDataFrame."""
+    total = len(gdf)
+
+    # AOI area in square miles (for density calculation)
+    aoi_geom = polygon if polygon is not None else shapely_box(min_lon, min_lat, max_lon, max_lat)
+    aoi_sqmi = (
+        gpd.GeoSeries([aoi_geom], crs="EPSG:4326")
+        .to_crs("EPSG:3857").area.values[0] / 2_589_988.1
+    )
+    density = round(total / aoi_sqmi, 1) if aoi_sqmi > 0 else 0.0
+
+    # Class distribution
+    class_counts: dict = {}
+    if "bld_class" in gdf.columns:
+        vc = gdf["bld_class"].fillna("unknown").value_counts()
+        class_counts = {str(k): int(v) for k, v in vc.items()}
+
+    # Footprint area stats (sq ft)
+    areas = gdf["area_ft2"].dropna()
+    area_stats = {
+        "mean":      round(float(areas.mean()),   1) if len(areas) else None,
+        "median":    round(float(areas.median()), 1) if len(areas) else None,
+        "histogram": _histogram(areas, bins=20),
+    }
+
+    # Height stats (metres, from Overture data — often sparse)
+    if "height" in gdf.columns and gdf["height"].notna().any():
+        h = gdf["height"].dropna()
+        height_stats = {
+            "mean":          round(float(h.mean()),   1),
+            "median":        round(float(h.median()), 1),
+            "available_pct": round(len(h) / total * 100, 1),
+            "histogram":     _height_histogram(h),
+        }
+    else:
+        height_stats = {"available_pct": 0.0, "histogram": {"edges": [], "counts": [], "bin_width": 0, "p99": 0}}
+
+    # Floor count stats
+    if "num_floors" in gdf.columns and gdf["num_floors"].notna().any():
+        f = gdf["num_floors"].dropna().clip(upper=50)   # clip extreme outliers
+        floor_stats = {
+            "mean":          round(float(f.mean()), 1),
+            "available_pct": round(len(f) / total * 100, 1),
+            "histogram":     _histogram(f, bins=20),
+        }
+    else:
+        floor_stats = {"available_pct": 0.0, "histogram": {"edges": [], "counts": []}}
+
+    return {
+        "total":            total,
+        "truncated":        truncated,
+        "density_per_sqmi": density,
+        "class_counts":     class_counts,
+        "area_stats":       area_stats,
+        "height_stats":     height_stats,
+        "floor_stats":      floor_stats,
+    }
+
+
+# ── routes ──────────────────────────────────────────────────────────────────
+
+@app.post("/api/buildings")
+async def buildings_query(req: BuildingsRequest):
+    """Load buildings from Overture Maps, clip to AOI, return stats + GeoJSON."""
+    try:
+        polygon, min_lon, min_lat, max_lon, max_lat = req.resolve_bounds()
+    except Exception as e:
+        raise HTTPException(400, f"Invalid geometry: {e}")
+
+    loop = asyncio.get_event_loop()
+
+    def _run():
+        gdf, truncated = _load_buildings(
+            polygon, min_lon, min_lat, max_lon, max_lat, req.class_filter
+        )
+        stats = _build_stats(gdf, truncated, min_lon, min_lat, max_lon, max_lat, polygon)
+
+        # Build a lightweight GeoJSON for the map (capped at BUILDINGS_MAP_LIMIT)
+        map_cols = [c for c in ["geometry", "bld_class", "height", "num_floors", "area_ft2"]
+                    if c in gdf.columns or c == "geometry"]
+        gdf_map = gdf[map_cols].head(BUILDINGS_MAP_LIMIT).copy()
+        if "bld_class" in gdf_map.columns:
+            gdf_map["bld_class"] = gdf_map["bld_class"].fillna("unknown")
+        geojson_str = gdf_map.to_json()
+
+        return {**stats, "geojson": geojson_str, "class_colors": CLASS_COLORS}
+
+    try:
+        result = await loop.run_in_executor(None, _run)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Buildings query error: {e}")
+
+    return JSONResponse(result)
+
+
+@app.post("/api/buildings/export")
+async def buildings_export(req: BuildingsRequest):
+    """Same load as /api/buildings but return a zipped ESRI Shapefile."""
+    try:
+        polygon, min_lon, min_lat, max_lon, max_lat = req.resolve_bounds()
+    except Exception as e:
+        raise HTTPException(400, f"Invalid geometry: {e}")
+
+    loop = asyncio.get_event_loop()
+
+    def _run():
+        gdf, _ = _load_buildings(
+            polygon, min_lon, min_lat, max_lon, max_lat, req.class_filter
+        )
+
+        # Rename columns to ≤10-char shapefile-safe names
+        rename_map = {
+            "bld_class":  "bld_class",
+            "height":     "height_m",
+            "num_floors": "num_floors",
+            "has_parts":  "has_parts",
+            "area_m2":    "area_m2",
+            "area_ft2":   "area_ft2",
+            "ctr_lon":    "ctr_lon",
+            "ctr_lat":    "ctr_lat",
+        }
+        keep   = {old: new for old, new in rename_map.items() if old in gdf.columns}
+        export = gdf[["geometry"] + list(keep.keys())].rename(columns=keep)
+        export = export.set_crs("EPSG:4326", allow_override=True)
+
+        # Write shapefile components to a temp dir, then zip in memory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shp_path = os.path.join(tmpdir, "buildings.shp")
+            export.to_file(shp_path, driver="ESRI Shapefile")
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fname in os.listdir(tmpdir):
+                    zf.write(os.path.join(tmpdir, fname), fname)
+            buf.seek(0)
+            return buf.read()
+
+    try:
+        data = await loop.run_in_executor(None, _run)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Buildings export error: {e}")
+
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=buildings.zip"},
+    )

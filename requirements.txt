@@ -9,3 +9,6 @@ pandas
 shapely
 rasterio
 requests
+geopandas
+pyarrow
+pyproj
